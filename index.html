@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en" class="bg-gray-50 text-gray-900">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>IntelliNews - Home</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-white transition-colors duration-300">
+
+  <header class="sticky top-0 z-10 bg-white shadow-md dark:bg-gray-800">
+    <div class="container mx-auto px-4 py-4 flex items-center justify-between">
+      <a href="index.html" class="flex items-center space-x-2">
+        <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2v-9a2 2 0 00-2-2h-2m-2-4H9a2 2 0 00-2 2v14a2 2 0 002 2h6a2 2 0 002-2V7a2 2 0 00-2-2h-2"></path>
+        </svg>
+        <h1 class="text-xl font-bold">IntelliNews</h1>
+      </a>
+
+      <button id="darkModeToggle" class="p-2 rounded-full">
+        <svg id="moonIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
+        </svg>
+        <svg id="sunIcon" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <nav class="hidden md:flex justify-center space-x-6 mt-4 mb-8">
+    <a href="index.html" class="px-4 py-2 rounded-md bg-blue-600 text-white font-medium">Home</a>
+    <a href="analytics.html" class="px-4 py-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">Analytics</a>
+    <a href="saved.html" class="px-4 py-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">Saved</a>
+    <a href="settings.html" class="px-4 py-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700">Settings</a>
+  </nav>
+
+  <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 dark:bg-gray-800 dark:border-gray-700">
+    <div class="flex justify-around">
+      <a href="index.html" class="flex flex-col items-center p-3 text-blue-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+        <span class="text-xs mt-1">Home</span>
+      </a>
+      <a href="analytics.html" class="flex flex-col items-center p-3">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+        <span class="text-xs mt-1">Analytics</span>
+      </a>
+      <a href="saved.html" class="flex flex-col items-center p-3">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path></svg>
+        <span class="text-xs mt-1">Saved</span>
+      </a>
+      <a href="settings.html" class="flex flex-col items-center p-3">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+        <span class="text-xs mt-1">Settings</span>
+      </a>
+    </div>
+  </nav>
+
+  <main class="container mx-auto px-4 py-8 mb-16 md:mb-0">
+    
+    <div class="mb-8 p-4 rounded-lg shadow-sm bg-white dark:bg-gray-800">
+      <div class="relative">
+        <input type="text" id="searchInput" placeholder="Search news articles..." 
+               class="w-full p-3 pl-10 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 dark:bg-gray-700 dark:text-white"/>
+        <svg class="absolute left-3 top-3.5 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+        </svg>
+      </div>
+    </div>
+
+    <section id="home">
+      <h2 class="text-2xl font-bold mb-6">Personalized News Feed</h2>
+
+      <div class="mb-6 flex flex-wrap gap-2">
+        <button onclick="toggleCategory(this)" data-category="Technology" class="category-btn px-4 py-2 rounded-full text-sm font-medium bg-blue-600 text-white">Technology</button>
+        <button onclick="toggleCategory(this)" data-category="Politics" class="category-btn px-4 py-2 rounded-full text-sm font-medium bg-blue-600 text-white">Politics</button>
+        <button onclick="toggleCategory(this)" data-category="Sports" class="category-btn px-4 py-2 rounded-full text-sm font-medium bg-blue-600 text-white">Sports</button>
+        <button onclick="toggleCategory(this)" data-category="Business" class="category-btn px-4 py-2 rounded-full text-sm font-medium bg-gray-200 dark:bg-gray-700">Business</button>
+        <button onclick="toggleCategory(this)" data-category="Science" class="category-btn px-4 py-2 rounded-full text-sm font-medium bg-gray-200 dark:bg-gray-700">Science</button>
+        <button onclick="toggleCategory(this)" data-category="Entertainment" class="category-btn px-4 py-2 rounded-full text-sm font-medium bg-gray-200 dark:bg-gray-700">Entertainment</button>
+      </div>
+
+      <div id="newsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const mockArticles = [
+      { id: 1, title: "AI Breakthrough in Healthcare", category: "Technology", summary: "New AI model achieves 99% accuracy in cancer detection.", source: "TechCrunch", timeToRead: "5 min read", image: "https://placehold.co/600x400?text=AI+Healthcare" },
+      { id: 2, title: "Global Climate Summit Concludes", category: "Politics", summary: "World leaders agree on new carbon reduction targets.", source: "BBC News", timeToRead: "7 min read", image: "https://placehold.co/600x400?text=Climate+Summit" },
+      { id: 3, title: "Football Champions League Final Preview", category: "Sports", summary: "Top teams gear up for the most anticipated match of the season.", source: "ESPN", timeToRead: "4 min read", image: "https://placehold.co/600x400?text=Champions+League" },
+      { id: 4, title: "Election Polls Show Tight Race", category: "Politics", summary: "Latest surveys indicate a neck-and-neck contest between major candidates.", source: "Reuters", timeToRead: "6 min read", image: "https://placehold.co/600x400?text=Election+Polls" },
+      { id: 5, title: "Quantum Computing Takes Leap Forward", category: "Science", summary: "Researchers develop new quantum processor with unprecedented speed.", source: "Nature", timeToRead: "8 min read", image: "https://placehold.co/600x400?text=Quantum+Leap" },
+      { id: 6, title: "Startups Revolutionizing Education", category: "Business", summary: "EdTech startups are reshaping how we learn with AI-powered platforms.", source: "Forbes", timeToRead: "9 min read", image: "https://placehold.co/600x400?text=EdTech+Revolution" }
+    ];
+
+    let userPreferences = {
+      categories: ['Technology', 'Politics', 'Sports'],
+      readingTime: '10-15 mins'
+    };
+    let savedArticles = JSON.parse(localStorage.getItem('savedArticles')) || [];
+
+    function toggleDarkMode() {
+      const isDark = document.documentElement.classList.toggle('dark');
+      localStorage.setItem('darkMode', isDark);
+      document.getElementById('moonIcon').classList.toggle('hidden', isDark);
+      document.getElementById('sunIcon').classList.toggle('hidden', !isDark);
+    }
+
+    function toggleCategory(button) {
+      const category = button.dataset.category;
+      const index = userPreferences.categories.indexOf(category);
+      if (index === -1) {
+        userPreferences.categories.push(category);
+        button.classList.add('bg-blue-600', 'text-white');
+        button.classList.remove('bg-gray-200', 'dark:bg-gray-700');
+      } else {
+        userPreferences.categories.splice(index, 1);
+        button.classList.remove('bg-blue-600', 'text-white');
+        button.classList.add('bg-gray-200', 'dark:bg-gray-700');
+      }
+      renderNews();
+    }
+
+    function renderNews() {
+      const searchQuery = document.getElementById('searchInput').value.toLowerCase();
+      const filteredArticles = mockArticles.filter(article => {
+        const matchesSearch = article.title.toLowerCase().includes(searchQuery) || article.summary.toLowerCase().includes(searchQuery);
+        const matchesCategory = userPreferences.categories.includes(article.category);
+        return matchesSearch && matchesCategory;
+      });
+
+      const container = document.getElementById('newsGrid');
+      container.innerHTML = '';
+      if (filteredArticles.length === 0) {
+        container.innerHTML = `<div class="col-span-full p-8 text-center rounded-lg bg-white dark:bg-gray-800 shadow-md"><h3 class="mt-2 text-lg font-medium">No articles found</h3><p class="mt-1 text-gray-500 dark:text-gray-400">Try adjusting your search or filter criteria.</p></div>`;
+        return;
+      }
+
+      filteredArticles.forEach(article => {
+        const isSaved = savedArticles.some(saved => saved.id === article.id);
+        const articleElement = document.createElement('article');
+        articleElement.className = `overflow-hidden rounded-lg shadow-md transition-transform duration-300 transform hover:-translate-y-1 hover:shadow-lg bg-white dark:bg-gray-800`;
+        articleElement.innerHTML = `
+          <img src="${article.image}" alt="${article.title}" class="w-full h-48 object-cover"/>
+          <div class="p-5">
+            <div class="flex justify-between items-start mb-2">
+              <span class="inline-block px-2 py-1 text-xs font-semibold bg-blue-100 text-blue-800 rounded-full dark:bg-blue-900 dark:text-blue-300">${article.category}</span>
+              <button onclick='handleSaveArticle(${JSON.stringify(article)})' class="${isSaved ? 'text-blue-600' : 'text-gray-500 hover:text-blue-600'}" aria-label="Save article">
+                <svg class="w-5 h-5" fill="${isSaved ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
+              </button>
+            </div>
+            <h3 class="text-xl font-bold mb-2">${article.title}</h3>
+            <p class="mb-4 text-gray-600 dark:text-gray-300">${article.summary}</p>
+            <div class="flex justify-between items-center mt-4">
+              <span class="text-sm text-gray-500">${article.source}</span>
+              <span class="text-sm text-gray-500">${article.timeToRead}</span>
+            </div>
+          </div>`;
+        container.appendChild(articleElement);
+      });
+    }
+    
+    function handleSaveArticle(article) {
+        const index = savedArticles.findIndex(item => item.id === article.id);
+        if (index === -1) {
+            savedArticles.push(article);
+        } else {
+            savedArticles.splice(index, 1);
+        }
+        localStorage.setItem('savedArticles', JSON.stringify(savedArticles));
+        renderNews();
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const isDark = localStorage.getItem('darkMode') === 'true';
+      if (isDark) {
+        document.documentElement.classList.add('dark');
+        document.getElementById('moonIcon').classList.add('hidden');
+        document.getElementById('sunIcon').classList.remove('hidden');
+      }
+      document.getElementById('searchInput').addEventListener('input', renderNews);
+      document.getElementById('darkModeToggle').addEventListener('click', toggleDarkMode);
+      renderNews();
+    });
+  </script>
+</body>
+</html>
