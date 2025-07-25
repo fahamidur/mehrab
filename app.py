@@ -648,32 +648,19 @@ def admin_scrape_news():
 
 # Run the Flask app
 if __name__ == '__main__':
-    import sys
-
     with app.app_context():
         db.create_all()
-
-        # Ensure admin exists
         if not User.query.filter_by(username='admin').first():
             admin_user = User(username='admin', role='admin')
             admin_user.set_password('adminpass')
             db.session.add(admin_user)
             db.session.commit()
-            print("Created default admin user: username='admin', password='adminpass'")
 
-        # --- Run scraper if --scrape-now argument is passed ---
-        if '--scrape' in sys.argv:
-            print("[FORCE] Running immediate scrape...")
-            scheduled_scrape_news()
-            print("[FORCE] Scrape completed.")
-            sys.exit(0)  # Exit after scraping
-
-    # Normal scheduled jobs setup
+    # Start scheduler (make sure it's background scheduler)
     scheduler.start()
     with app.app_context():
-        initial_run_date = datetime.now() - timedelta(seconds=1)
-        scheduler.add_job(id='initial_scrape', func=scheduled_scrape_news, trigger='date', run_date=initial_run_date)
+        scheduler.add_job(id='initial_scrape', func=scheduled_scrape_news, trigger='date', run_date=datetime.now())
         scheduler.add_job(id='hourly_scrape', func=scheduled_scrape_news, trigger='interval', hours=1)
-        print("Scheduled initial scrape and hourly scrape jobs.")
 
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
