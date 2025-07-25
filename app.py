@@ -646,21 +646,30 @@ def admin_scrape_news():
         return redirect(url_for('admin_articles'))
     return render_template('admin/scrape_news.html')
 
-# Run the Flask app
-if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-        if not User.query.filter_by(username='admin').first():
-            admin_user = User(username='admin', role='admin')
-            admin_user.set_password('adminpass')
-            db.session.add(admin_user)
-            db.session.commit()
 
-    # Start scheduler (make sure it's background scheduler)
+# --- Ensure tables and default admin user exist ---
+with app.app_context():
+    db.create_all()
+
+    # Create default admin user if not exists
+    if not User.query.filter_by(username='admin').first():
+        admin_user = User(username='admin', role='admin')
+        admin_user.set_password('adminpass')
+        db.session.add(admin_user)
+        db.session.commit()
+        print(" Created default admin user: username='admin', password='adminpass'")
+
+# --- Setup scheduler (only once in production with gunicorn) ---
+if os.environ.get("RUN_MAIN") != "true":  # prevents duplicate jobs in reloader
     scheduler.start()
     with app.app_context():
         scheduler.add_job(id='initial_scrape', func=scheduled_scrape_news, trigger='date', run_date=datetime.now())
         scheduler.add_job(id='hourly_scrape', func=scheduled_scrape_news, trigger='interval', hours=1)
+        print("Scheduled initial and hourly scraping jobs.")
 
+# --- Run server if using 'python app.py' directly (not used by gunicorn) ---
+if __name__ == '__main__':
+    import os
+    from datetime import datetime, timedelta
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
