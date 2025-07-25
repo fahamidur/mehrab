@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8 mb-16 md:mb-0">
+    <h2 class="text-3xl font-bold mb-8 text-gray-900 dark:text-white">Admin Dashboard</h2>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <a href="{{ url_for('admin_users') }}" class="block p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-shadow duration-300">
+            <h3 class="text-xl font-semibold mb-2 text-gray-800 dark:text-white">Manage Users</h3>
+            <p class="text-gray-600 dark:text-gray-400">View, add, edit, and delete user accounts.</p>
+        </a>
+
+        <a href="{{ url_for('admin_articles') }}" class="block p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-shadow duration-300">
+            <h3 class="text-xl font-semibold mb-2 text-gray-800 dark:text-white">Manage News Articles</h3>
+            <p class="text-gray-600 dark:text-gray-400">View, add, edit, and delete news articles.</p>
+        </a>
+
+        <a href="{{ url_for('admin_scrape_news') }}" class="block p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-shadow duration-300">
+            <h3 class="text-xl font-semibold mb-2 text-gray-800 dark:text-white">Scrape News</h3>
+            <p class="text-gray-600 dark:text-gray-400">Trigger the news scraper to fetch new articles.</p>
+        </a>
+    </div>
+
+    <!-- Flash messages for admin actions -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="mt-8 space-y-2">
+          {% for category, message in messages %}
+            <div class="p-3 rounded-md text-sm {% if category == 'error' or category == 'danger' %}bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300{% elif category == 'success' %}bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300{% else %}bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300{% endif %}">
+              {{ message }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+</div>
+{% endblock %}

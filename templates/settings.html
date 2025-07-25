@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+     <section id="settings">
+      <h2 class="text-2xl font-bold mb-6">User Settings</h2>
+      
+      <div class="p-6 rounded-lg shadow-md mb-6 bg-white dark:bg-gray-800">
+        <h3 class="text-xl font-semibold mb-4">Profile Preferences</h3>
+        <div class="mb-4">
+          <label class="block text-sm font-medium mb-2">Preferred Categories</label>
+          <div class="flex flex-wrap gap-2">
+            <button onclick="toggleSettingCategory(this)" data-category="Technology" class="setting-category-btn px-4 py-2 rounded-full text-sm font-medium">Technology</button>
+            <button onclick="toggleSettingCategory(this)" data-category="Politics" class="setting-category-btn px-4 py-2 rounded-full text-sm font-medium">Politics</button>
+            <button onclick="toggleSettingCategory(this)" data-category="Sports" class="setting-category-btn px-4 py-2 rounded-full text-sm font-medium">Sports</button>
+            <button onclick="toggleSettingCategory(this)" data-category="Business" class="setting-category-btn px-4 py-2 rounded-full text-sm font-medium">Business</button>
+            <button onclick="toggleSettingCategory(this)" data-category="Science" class="setting-category-btn px-4 py-2 rounded-full text-sm font-medium">Science</button>
+            <button onclick="toggleSettingCategory(this)" data-category="Entertainment" class="setting-category-btn px-4 py-2 rounded-full text-sm font-medium">Entertainment</button>
+          </div>
+        </div>
+        <div class="mb-4">
+          <label for="readingTimeSelect" class="block text-sm font-medium mb-2">Average Reading Time</label>
+          <select id="readingTimeSelect" class="w-full p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 dark:bg-gray-700 dark:text-white">
+            <option value="5-10 mins">5-10 minutes</option>
+            <option value="10-15 mins">10-15 minutes</option>
+            <option value="15-30 mins">15-30 minutes</option>
+            <option value="30+ mins">30+ minutes</option>
+          </select>
+        </div>
+        <div class="mt-6 flex justify-end">
+          <button onclick="saveSettings()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Save Changes</button>
+        </div>
+      </div>
+
+      <div class="p-6 rounded-lg shadow-md bg-white dark:bg-gray-800">
+        <h3 class="text-xl font-semibold mb-4">About IntelliNews</h3>
+        <p class="mb-4 text-gray-600 dark:text-gray-300">An Intelligent News Aggregator Integrating AI-Based Personalisation and Visual Analytics for Enhanced User Engagement.</p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <h4 class="font-medium mb-2">Core Features</h4>
+            <ul class="list-disc list-inside text-sm text-gray-600 dark:text-gray-300">
+              <li>User Authentication & Profiles</li>
+              <li>News Collection & Aggregation</li>
+              <li>Personalised News Recommendations</li>
+              <li>Interactive Visual Analytics Dashboard</li>
+            </ul>
+          </div>
+          <div>
+            <h4 class="font-medium mb-2">Technologies Used</h4>
+            <ul class="list-disc list-inside text-sm text-gray-600 dark:text-gray-300">
+              <li>React & TailwindCSS (Frontend)</li>
+              <li>Flask (Backend)</li>
+              <li>Scikit-learn & TensorFlow (ML)</li>
+              <li>HuggingFace Transformers (NLP)</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const defaultPreferences = {
+      categories: ['Technology', 'Politics', 'Sports'],
+      readingTime: '10-15 mins'
+    };
+    let userPreferences = JSON.parse(localStorage.getItem('userPreferences')) || defaultPreferences;
+    let tempSettings = {};
+
+    function initializeSettingsTab() {
+        tempSettings = JSON.parse(JSON.stringify(userPreferences));
+        document.querySelectorAll('.setting-category-btn').forEach(button => {
+            const category = button.dataset.category;
+            const isActive = tempSettings.categories.includes(category);
+            button.classList.toggle('bg-blue-600', isActive);
+            button.classList.toggle('text-white', isActive);
+            button.classList.toggle('bg-gray-200', !isActive);
+            button.classList.toggle('dark:bg-gray-700', !isActive);
+        });
+        document.getElementById('readingTimeSelect').value = tempSettings.readingTime;
+    }
+
+    function toggleSettingCategory(button) {
+      const category = button.dataset.category;
+      const index = tempSettings.categories.indexOf(category);
+      if (index === -1) {
+        tempSettings.categories.push(category);
+      } else {
+        tempSettings.categories.splice(index, 1);
+      }
+      const isActive = index === -1;
+      button.classList.toggle('bg-blue-600', isActive);
+      button.classList.toggle('text-white', isActive);
+      button.classList.toggle('bg-gray-200', !isActive);
+      button.classList.toggle('dark:bg-gray-700', !isActive);
+    }
+
+    function saveSettings() {
+      tempSettings.readingTime = document.getElementById('readingTimeSelect').value;
+      userPreferences = JSON.parse(JSON.stringify(tempSettings));
+      localStorage.setItem('userPreferences', JSON.stringify(userPreferences));
+      // Replace alert with a custom message box or toast notification for better UX
+      // For now, we'll use a simple console log
+      console.log('Settings saved successfully!');
+      // You might want to display a temporary message on the UI instead of alert
+      // Example: show a div with "Settings saved!" for a few seconds.
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      initializeSettingsTab();
+    });
+</script>
+{% endblock %}

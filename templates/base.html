@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en" class="bg-gray-50 text-gray-900">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>IntelliNews - {% block title %}{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-white transition-colors duration-300">
+
+  <header class="sticky top-0 z-10 bg-white shadow-md dark:bg-gray-800">
+    <div class="container mx-auto px-4 py-4 flex items-center justify-between">
+      <a href="{{ url_for('home') }}" class="flex items-center space-x-2">
+        <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2v-9a2 2 0 00-2-2h-2m-2-4H9a2 2 0 00-2 2v14a2 2 0 002 2h6a2 2 0 002-2V7a2 2 0 00-2-2h-2"></path>
+        </svg>
+        <h1 class="text-xl font-bold">IntelliNews</h1>
+      </a>
+      <div class="flex items-center space-x-4">
+        {% if current_user.is_authenticated %}
+          <span class="text-gray-700 dark:text-gray-300 text-sm hidden md:block">Hello, {{ current_user.username }}!</span>
+          <a href="{{ url_for('logout') }}" class="px-3 py-1 bg-red-500 text-white rounded-md text-sm hover:bg-red-600 transition-colors">Logout</a>
+        {% else %}
+          <a href="{{ url_for('login') }}" class="px-3 py-1 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 transition-colors">Login</a>
+          <a href="{{ url_for('register') }}" class="px-3 py-1 bg-gray-200 text-gray-800 rounded-md text-sm hover:bg-gray-300 transition-colors dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600">Register</a>
+        {% endif %}
+        <button id="darkModeToggle" class="p-2 rounded-full">
+          <svg id="moonIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+          <svg id="sunIcon" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <nav class="hidden md:flex justify-center space-x-6 mt-4 mb-8">
+    <a href="{{ url_for('home') }}" class="px-4 py-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 {% if request.endpoint == 'home' %}bg-blue-600 text-white font-medium{% endif %}">Home</a>
+    {% if current_user.is_authenticated %}
+      <a href="{{ url_for('analytics') }}" class="px-4 py-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 {% if request.endpoint == 'analytics' %}bg-blue-600 text-white font-medium{% endif %}">Analytics</a>
+      <a href="{{ url_for('saved') }}" class="px-4 py-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 {% if request.endpoint == 'saved' %}bg-blue-600 text-white font-medium{% endif %}">Saved</a>
+      <a href="{{ url_for('settings') }}" class="px-4 py-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 {% if request.endpoint == 'settings' %}bg-blue-600 text-white font-medium{% endif %}">Settings</a>
+    {% endif %}
+    {% if current_user.is_authenticated and current_user.role == 'admin' %}
+        <a href="{{ url_for('admin_dashboard') }}" class="px-4 py-2 rounded-md bg-purple-600 text-white font-medium hover:bg-purple-700">Admin Panel</a>
+    {% endif %}
+  </nav>
+
+  <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 dark:bg-gray-800 dark:border-gray-700">
+    <div class="flex justify-around">
+      <a href="{{ url_for('home') }}" class="flex flex-col items-center p-3 {% if request.endpoint == 'home' %}text-blue-600{% endif %}">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+        <span class="text-xs mt-1">Home</span>
+      </a>
+      {% if current_user.is_authenticated %}
+        <a href="{{ url_for('analytics') }}" class="flex flex-col items-center p-3 {% if request.endpoint == 'analytics' %}text-blue-600{% endif %}">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+          <span class="text-xs mt-1">Analytics</span>
+        </a>
+        <a href="{{ url_for('saved') }}" class="flex flex-col items-center p-3 {% if request.endpoint == 'saved' %}text-blue-600{% endif %}">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path></svg>
+          <span class="text-xs mt-1">Saved</span>
+        </a>
+        <a href="{{ url_for('settings') }}" class="flex flex-col items-center p-3 {% if request.endpoint == 'settings' %}text-blue-600{% endif %}">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924-1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+          <span class="text-xs mt-1">Settings</span>
+        </a>
+        {% if current_user.is_authenticated and current_user.role == 'admin' %}
+            <a href="{{ url_for('admin_dashboard') }}" class="flex flex-col items-center p-3 {% if 'admin' in request.endpoint %}text-purple-600{% endif %}">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.001 12.001 0 002.92 12c0 3.072 1.578 5.865 4.159 7.465L12 22.055l4.921-2.629C20.422 17.865 22 15.072 22 12c0-1.789-.347-3.49-1.01-5.024z"></path></svg>
+                <span class="text-xs mt-1">Admin</span>
+            </a>
+        {% endif %}
+      {% endif %}
+    </div>
+  </nav>
+
+  <main class="container mx-auto px-4 py-8 mb-16 md:mb-0">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block scripts %}{% endblock %}
+
+  <script>
+    // Dark mode toggle logic, placed here as it's a global feature
+    function toggleDarkMode() {
+      const isDark = document.documentElement.classList.toggle('dark');
+      localStorage.setItem('darkMode', isDark);
+      document.getElementById('moonIcon').classList.toggle('hidden', isDark);
+      document.getElementById('sunIcon').classList.toggle('hidden', !isDark);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const isDark = localStorage.getItem('darkMode') === 'true';
+      if (isDark) {
+        document.documentElement.classList.add('dark');
+        document.getElementById('moonIcon').classList.add('hidden');
+        document.getElementById('sunIcon').classList.remove('hidden');
+      }
+      document.getElementById('darkModeToggle').addEventListener('click', toggleDarkMode);
+    });
+  </script>
+</body>
+</html>

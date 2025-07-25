@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}{{ article.title or "Untitled Article" }}{% endblock %}
+
+{% block content %}
+<div class="container mx-auto p-6 bg-white dark:bg-gray-800 rounded-lg shadow-lg font-sans">
+
+    {# --- Article Image --- #}
+    <img src="{{ article.image_url }}" alt="{{ article.title or 'No Image' }}" class="w-full h-96 object-cover rounded-lg mb-6">    
+
+    {# --- Title and Metadata --- #}
+    <h1 class="text-4xl font-extrabold text-gray-900 dark:text-white mb-3 leading-snug">{{ article.title or "Untitled Article" }}</h1>
+    <div class="flex flex-wrap items-center text-sm text-gray-600 dark:text-gray-400 mb-4 gap-4">
+        <span>{{ article.source or "Unknown Source" }}</span>
+        <span>{{ article.time_to_read or "N/A" }}</span>
+        {% if article.published_at %}
+            <span>{{ article.published_at.strftime('%B %d, %Y') }}</span>
+        {% endif %}
+        <span class="inline-block px-3 py-1 text-sm font-semibold bg-blue-100 text-blue-800 rounded-full dark:bg-blue-900 dark:text-blue-300">
+            {{ article.category or "General" }}
+        </span>
+    </div>
+
+    {# --- Summary Section --- #}
+    <section class="bg-gray-50 dark:bg-gray-700 p-5 rounded-lg mb-8 border-l-4 border-blue-500">
+        <h2 class="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Summary</h2>
+        <p class="text-gray-700 dark:text-gray-300 text-lg leading-relaxed">
+            {{ article.summary or "No summary available." }}
+        </p>
+    </section>
+
+    {# --- Full Article Chunked Section --- #}
+    <section class="space-y-6">
+        <h2 class="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Full Article</h2>
+
+        {% for paragraph in article.preview_content.split('\n\n') %}
+            <div class="p-5 rounded-lg shadow-sm bg-gray-50 dark:bg-gray-700 text-lg leading-relaxed text-gray-800 dark:text-gray-200" style="font-family: 'Inter', 'Segoe UI', sans-serif;">
+                {{ paragraph | safe }}
+            </div>
+        {% endfor %}
+    </section>
+
+
+    {# --- Back Button --- #}
+    <div class="mt-10">
+        <a href="{{ url_for('home') }}" class="inline-flex items-center px-5 py-2.5 text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+            ← Back to News Feed
+        </a>
+    </div>
+
+</div>
+{% endblock %}
