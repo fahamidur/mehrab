@@ -3,7 +3,7 @@ from flask import Flask, render_template, redirect, url_for, request, flash, jso
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime,timedelta
+from datetime import datetime, timedelta
 import os
 import requests
 from bs4 import BeautifulSoup
@@ -12,95 +12,51 @@ import json
 from urllib.parse import urljoin, urlparse
 import re
 from functools import wraps
+import random
+from collections import defaultdict
+import sys
+from itsdangerous import URLSafeTimedSerializer
+from flask import current_app
 
 # Import Flask-APScheduler
 from flask_apscheduler import APScheduler
+from flask_mail import Mail, Message
+from models import db, User, Article, SavedArticle, ReadingActivity, VerificationCode
+from nlp_summarizer import summarize_new_articles
 
 # Initialize Flask app
 app = Flask(__name__)
 
-# Configure secret key for session management and CSRF protection
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your_super_secret_key_here')
-
-# Configure SQLite database
+# --- Configuration ---
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your_super_secret_key_here')
 
-# Initialize SQLAlchemy
-db = SQLAlchemy(app)
+# Email configuration
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = 'frahaman832@gmail.com'
+app.config['MAIL_PASSWORD'] = 'apxv ntmu neic ffdb'
+app.config['MAIL_DEFAULT_SENDER'] = ('IntelliNews Team', 'frahaman832@gmail.com')
 
-# Initialize Flask-Login
-login_manager = LoginManager()
-login_manager.init_app(app)
+# Scheduler configuration
+app.config['SCHEDULER_API_ENABLED'] = True
+
+# --- Initialize extensions ---
+db.init_app(app)
+login_manager = LoginManager(app)
 login_manager.login_view = 'login'
-
-# Initialize APScheduler
+mail = Mail(app)
 scheduler = APScheduler()
-app.config['SCHEDULER_API_ENABLED'] = True # Optional: enables scheduler API endpoint (e.g., /scheduler/jobs)
-scheduler.init_app(app)
-
-# --- Database Models ---
-
-class User(UserMixin, db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(20), unique=True, nullable=False)
-    password_hash = db.Column(db.String(128), nullable=False)
-    role = db.Column(db.String(10), default='user', nullable=False)
-
-    def set_password(self, password):
-        """Hashes the password and stores it."""
-        self.password_hash = generate_password_hash(password)
-
-    def check_password(self, password):
-        """Checks if the provided password matches the stored hash."""
-        return check_password_hash(self.password_hash, password)
-
-    def __repr__(self):
-        return f"User('{self.username}', '{self.role}')"
-
-class Article(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(255), nullable=False)
-    summary = db.Column(db.Text, nullable=True)
-    content = db.Column(db.Text, nullable=True)
-    category = db.Column(db.String(50), nullable=True)
-    source = db.Column(db.String(100), nullable=True)
-    image_url = db.Column(db.String(255), nullable=True)
-    time_to_read = db.Column(db.String(20), nullable=True)
-    published_at = db.Column(db.DateTime, nullable=True)
-    scraped_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    author = db.Column(db.String(100), nullable=True)
-    tags = db.Column(db.String(255), nullable=True) # Stored as comma-separated string
-
-    def __repr__(self):
-        return f"Article('{self.title}', '{self.category}')"
-
-    def to_dict(self):
-        """Converts an Article object to a dictionary for JSON serialization."""
-        return {
-            'id': self.id,
-            'title': self.title,
-            'summary': self.summary,
-            'content': self.content,
-            'category': self.category,
-            'source': self.source,
-            'image': self.image_url,
-            'timeToRead': self.time_to_read,
-            'published_at': self.published_at.isoformat() if self.published_at else None,
-            'scraped_at': self.scraped_at.isoformat(),
-            'author': self.author,
-            'tags': self.tags.split(',') if self.tags else [] # Split the comma-separated string back into a list
-        }
 
 # --- Flask-Login User Loader ---
-
 @login_manager.user_loader
 def load_user(user_id):
     """Loads a user from the database given their ID."""
     return User.query.get(int(user_id))
 
 # --- Custom Decorators ---
-
 def admin_required(f):
     """Decorator to restrict access to admin users only."""
     @wraps(f)
@@ -110,6 +66,149 @@ def admin_required(f):
             return redirect(url_for('home'))
         return f(*args, **kwargs)
     return decorated_function
+
+def generate_verification_code():
+    """Generate a 6-digit verification code"""
+    return ''.join([str(random.randint(0, 9)) for _ in range(6)])
+
+def send_verification_email(email, code):
+    """Send verification email with the code"""
+    msg = Message(
+        'Your IntelliNews Verification Code',
+        recipients=[email]
+    )
+    msg.body = f'Your verification code is: {code}\n\nThis code will expire in 10 minutes.'
+    mail.send(msg)
+
+
+# --- Recommendation System ---
+class HybridRecommender:
+    def __init__(self, db):
+        self.db = db
+    
+    def get_recommendations(self, user_id, num_recommendations=5):
+        """Get hybrid recommendations for a user"""
+        # Get user's reading history
+        user_activities = ReadingActivity.query.filter_by(user_id=user_id).all()
+        
+        if not user_activities:
+            # If no history, return popular articles
+            return self._get_popular_articles(num_recommendations)
+        
+        # Behavioral recommendations (based on reading history)
+        behavioral_recs = self._get_behavioral_recommendations(user_id, num_recommendations)
+        
+        # Content-based recommendations (based on tags/categories)
+        content_recs = self._get_content_recommendations(user_id, num_recommendations)
+        
+        # Combine and deduplicate recommendations
+        combined = behavioral_recs + content_recs
+        unique_recs = list({rec.id: rec for rec in combined}.values())
+        
+        # Remove already saved articles
+        saved_ids = {sa.article_id for sa in SavedArticle.query.filter_by(user_id=user_id).all()}
+        filtered_recs = [rec for rec in unique_recs if rec.id not in saved_ids]
+        
+        # Sort by relevance score (simple hybrid approach)
+        return sorted(filtered_recs, key=lambda x: self._calculate_relevance_score(x, user_id), reverse=True)[:num_recommendations]
+    
+    def _get_behavioral_recommendations(self, user_id, num_recommendations):
+        """Get recommendations based on user's reading patterns"""
+        # Get most read tags by this user
+        user_tags = db.session.query(
+            ReadingActivity.tags,
+            db.func.sum(ReadingActivity.time_spent).label('total_time')
+        ).filter_by(user_id=user_id)\
+         .group_by(ReadingActivity.tags)\
+         .order_by(db.desc('total_time'))\
+         .limit(3)\
+         .all()
+        
+        if not user_tags:
+            return []
+        
+        # Get articles with same tags that user hasn't read
+        # Get articles with same tags that user hasn't read
+        top_tags = [tag[0] for tag in user_tags]
+
+        query = (
+            Article.query
+            .filter(Article.tags.in_(top_tags))
+            .filter(~Article.reading_activities.any(user_id=user_id))
+            .order_by(Article.published_at.desc())
+            .limit(num_recommendations * 2)  # Get extra to filter later
+        )
+
+        
+        return query.all()
+    
+    def _get_content_recommendations(self, user_id, num_recommendations):
+        """Get recommendations based on article content similarity"""
+        # Get user's most recent read articles
+        recent_reads = (
+                ReadingActivity.query
+                .filter_by(user_id=user_id)
+                .order_by(ReadingActivity.recorded_at.desc())
+                .limit(3)
+                .all()
+            )
+        
+        if not recent_reads:
+            return []
+        
+        # Get articles with similar tags to recently read articles
+        recent_article_ids = [ra.article_id for ra in recent_reads]
+        recent_articles = Article.query.filter(Article.id.in_(recent_article_ids)).all()
+        
+        if not recent_articles:
+            return []
+        
+        # Collect tags from recent articles
+        recent_tags = set()
+        for article in recent_articles:
+            if article.tags:
+                recent_tags.update(article.tags.split(','))
+        
+        # Find articles with matching tags
+        query = (
+                Article.query
+                .filter(Article.tags.in_(list(recent_tags)))
+                .filter(~Article.id.in_(recent_article_ids))
+                .order_by(Article.published_at.desc())
+                .limit(num_recommendations * 2)  # Get extra to filter later
+            )
+
+        
+        return query.all()
+    
+    def _get_popular_articles(self, num_recommendations):
+        """Fallback to popular articles when no user history exists"""
+        return Article.query.order_by(Article.published_at.desc()).limit(num_recommendations).all()
+    
+    def _calculate_relevance_score(self, article, user_id):
+        """Simple relevance scoring combining behavioral and content signals"""
+        score = 0
+        
+        # Behavioral component - time spent on similar tags
+        user_tags = db.session.query(
+            ReadingActivity.tags,
+            db.func.sum(ReadingActivity.time_spent).label('total_time')
+        ).filter_by(user_id=user_id)\
+         .group_by(ReadingActivity.tags)\
+         .all()
+        
+        if article.tags and user_tags:
+            article_tags = set(article.tags.split(','))
+            for tag, time in user_tags:
+                if tag in article_tags:
+                    score += time / 60  # Convert seconds to minutes
+        
+        # Content component - recency boost
+        days_old = (datetime.utcnow() - article.published_at).days if article.published_at else 30
+        recency_boost = max(0, 1 - (days_old / 30))  # Linear decay over 30 days
+        score += recency_boost * 10  # Recency can add up to 10 points
+        
+        return score
 
 # --- BBC News Scraper Class ---
 class BBCNewsScraper:
@@ -133,6 +232,20 @@ class BBCNewsScraper:
         except requests.exceptions.RequestException as e:
             print(f"Error fetching {url}: {e}")
             return None
+
+    def _generate_summary(self, content, max_sentences=3):
+        """Generate a proper summary from the content by selecting key sentences."""
+        if not content:
+            return ""
+    
+        summary = "Loading Soon ..."
+        
+        return summary
+
+
+
+
+        
 
     def extract_category_links(self, category_url, max_pages=3):
         """Extract article links from a category page with pagination"""
@@ -328,10 +441,7 @@ class BBCNewsScraper:
         content = self._extract_content(soup)
         image_url = self._extract_images(soup)
 
-        summary_tag = soup.find('p', class_='ssrcss-1q0x1qg-Paragraph eq5iqo00') or \
-                    soup.find('p', class_='qa-story-summary') or \
-                    soup.find('p', class_='story-body__introduction')
-        summary = summary_tag.get_text(strip=True) if summary_tag else (content[:200] + '...' if content and len(content) > 200 else content)
+        summary = self._generate_summary(content) if content else None
 
         word_count = len(content.split()) if content else 0
         words_per_minute = 200
@@ -403,7 +513,6 @@ class BBCNewsScraper:
         return saved_count
 
 # --- Scheduled Scraping Function ---
-
 def scheduled_scrape_news():
     """
     Function to be run by the scheduler to scrape news from various categories.
@@ -416,10 +525,10 @@ def scheduled_scrape_news():
         categories_to_scrape = {
             'Technology': 'https://www.bbc.com/news/technology',
             'Politics': 'https://www.bbc.com/news/politics',
-            'Science': 'https://www.bbc.com/news/science_and_environment',
+            'Science': 'https://www.bbc.com/innovation',
             'Business': 'https://www.bbc.com/news/business',
             'Entertainment': 'https://www.bbc.com/news/entertainment_and_arts',
-            'Sport': 'https://www.bbc.com/sport',
+            'Sport': 'https://www.bbc.com/sport/cricket',
         }
         
         total_new_articles_saved = 0
@@ -437,8 +546,178 @@ def scheduled_scrape_news():
         
         print(f"[{datetime.now()}] Scheduled scraping finished. Total new articles saved: {total_new_articles_saved}")
 
-# --- Routes ---
+def initialize_database():
+    """Initialize the database with default data if empty."""
+    with app.app_context():
+        # Create all database tables
+        db.create_all()
+        
+        # Check if we have any articles
+        if db.session.query(db.Model.metadata.tables['article']).count() == 0:
+            print("No articles found in database. Running initial scrape...")
+            scheduled_scrape_news()
+            summarize_new_articles(app, db, Article)
+        
+        # Ensure admin exists
+        if not User.query.filter_by(username='admin').first():
+            admin_user = User(
+                username='admin',
+                email='admin@intellinews.com',  # Add email field
+                role='admin'
+            )
+            admin_user.set_password('adminpass')
+            db.session.add(admin_user)
+            db.session.commit()
+            print("Created default admin user: username='admin', email='admin@intellinews.com', password='adminpass'")
 
+def register_scheduler():
+    scheduler.init_app(app)
+    scheduler.start()
+    
+    # Add jobs with proper app context handling
+    scheduler.add_job(
+        id='scrape_news',
+        func=run_scrape_with_context,
+        trigger='interval',
+        minutes=15
+    )
+    
+    scheduler.add_job(
+        id='summarize_articles',
+        func=run_summarize_with_context,
+        trigger='interval',
+        minutes=10
+    )
+
+def run_scrape_with_context():
+    with app.app_context():
+        print(f"\n [Scrape Job Started at {datetime.now()}]")
+        scheduled_scrape_news()
+        print(f" [Scrape Job Completed at {datetime.now()}]\n")
+
+def run_summarize_with_context():
+    with app.app_context():
+        print(f"\n [Summarize Job Started at {datetime.now()}]")
+        summarize_new_articles(app, db, Article)
+        print(f" [Summarize Job Completed at {datetime.now()}]\n")
+
+
+# Add this after the mail initialization
+def generate_token(email):
+    serializer = URLSafeTimedSerializer(app.config['SECRET_KEY'])
+    return serializer.dumps(email, salt='password-reset-salt')
+
+def confirm_token(token, expiration=3600):
+    serializer = URLSafeTimedSerializer(app.config['SECRET_KEY'])
+    try:
+        email = serializer.loads(
+            token,
+            salt='password-reset-salt',
+            max_age=expiration
+        )
+    except:
+        return False
+    return email
+
+# Add these new routes after the existing routes
+@app.route('/forgot_password', methods=['GET', 'POST'])
+def forgot_password():
+    """Handle password reset requests"""
+    if current_user.is_authenticated:
+        return redirect(url_for('home'))
+
+    if request.method == 'POST':
+        email = request.form.get('email')
+        user = User.query.filter_by(email=email).first()
+
+        if not user:
+            flash('If an account exists with this email, a reset link has been sent.', 'info')
+            return redirect(url_for('login'))
+
+        # Generate verification code
+        code = generate_verification_code()
+        
+        # Delete any existing verification for this email
+        VerificationCode.query.filter_by(email=email).delete()
+        
+        # Create new verification record
+        verification = VerificationCode(email=email, code=code)
+        db.session.add(verification)
+        db.session.commit()
+
+        try:
+            send_verification_email(email, code)
+            flash('Verification code sent to your email. Please check your inbox.', 'success')
+            return render_template('reset_password_request.html', email=email, show_verification=True)
+        except Exception as e:
+            db.session.rollback()
+            flash('Failed to send verification email. Please try again.', 'error')
+            return render_template('reset_password_request.html')
+
+    return render_template('reset_password_request.html')
+
+@app.route('/reset_password', methods=['GET', 'POST'])
+def reset_password():
+    """Handle password reset with verification code"""
+    if current_user.is_authenticated:
+        return redirect(url_for('home'))
+
+    if request.method == 'POST':
+        email = request.form.get('email')
+        verification_code = request.form.get('verification_code')
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+
+        # Verify the code first
+        verification = VerificationCode.query.filter_by(email=email).first()
+        
+        if not verification:
+            flash('No verification request found for this email. Please start over.', 'error')
+            return redirect(url_for('forgot_password'))
+        
+        if verification.code != verification_code:
+            flash('Invalid verification code. Please try again.', 'error')
+            return render_template('reset_password_request.html', 
+                                 email=email,
+                                 show_verification=True)
+        
+        if verification.expires_at < datetime.utcnow():
+            flash('Verification code has expired. Please request a new one.', 'error')
+            return render_template('reset_password_request.html', 
+                                 email=email,
+                                 show_verification=True)
+
+        # Now verify passwords match
+        if password != confirm_password:
+            flash('Passwords do not match.', 'error')
+            return render_template('reset_password_request.html',
+                                email=email,
+                                show_verification=True)
+
+        if len(password) < 8:
+            flash('Password must be at least 8 characters long.', 'error')
+            return render_template('reset_password_request.html',
+                                email=email,
+                                show_verification=True)
+
+        # Find user and update password
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            flash('No account found with this email.', 'error')
+            return redirect(url_for('forgot_password'))
+
+        user.set_password(password)
+        
+        # Clean up verification code
+        db.session.delete(verification)
+        db.session.commit()
+
+        flash('Your password has been updated! You can now log in.', 'success')
+        return redirect(url_for('login'))
+
+    return redirect(url_for('forgot_password'))
+
+# --- Routes ---
 @app.route('/')
 def home():
     """Renders the homepage (index.html). Accessible to all users."""
@@ -448,6 +727,22 @@ def home():
 def article_detail(article_id):
     """Renders a single article's detailed view with a 3-paragraph preview made from all lines."""
     article = Article.query.get_or_404(article_id)
+    
+    # Record initial reading activity (10 seconds by default)
+    if current_user.is_authenticated:
+        # Get the first tag or default to 'General'
+        tag = article.tags.split(',')[0] if article.tags else 'General'
+        
+        reading_activity = ReadingActivity(
+            user_id=current_user.id,
+            article_id=article_id,
+            time_spent=10,  # Default 10 seconds for clicking
+            tags=tag,
+            date=datetime.utcnow().date(),
+            recorded_at=datetime.utcnow()
+        )
+        db.session.add(reading_activity)
+        db.session.commit()
     
     content = article.content or ""
     lines = [line.strip() for line in content.split('\n') if line.strip()]  # clean empty lines
@@ -468,34 +763,115 @@ def article_detail(article_id):
     
     return render_template('article_detail.html', article=article)
 
-
-
 @app.route('/register', methods=['GET', 'POST'])
 def register():
-    """Handles user registration."""
+    """Handles user registration with email verification."""
     if current_user.is_authenticated:
         return redirect(url_for('home'))
 
     if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        role = request.form.get('role', 'user')
-
-        if not username or not password:
-            flash('Username and password are required!', 'error')
-            return render_template('register.html')
-
-        existing_user = User.query.filter_by(username=username).first()
-        if existing_user:
-            flash('Username already exists. Please choose a different one.', 'error')
-            return render_template('register.html')
-
-        new_user = User(username=username, role=role)
-        new_user.set_password(password)
-        db.session.add(new_user)
-        db.session.commit()
-        flash('Account created successfully! You can now log in.', 'success')
-        return redirect(url_for('login'))
+        # Step 1: Verify email with code
+        if 'verification_code' in request.form:
+            email = request.form.get('email')
+            username = request.form.get('username')
+            password = request.form.get('password')
+            verification_code = request.form.get('verification_code')
+            
+            verification = VerificationCode.query.filter_by(email=email).first()
+            
+            if not verification:
+                flash('No verification request found for this email. Please start over.', 'error')
+                return redirect(url_for('register'))
+            
+            if verification.code != verification_code:
+                flash('Invalid verification code. Please try again.', 'error')
+                return render_template('register.html', 
+                                    email=email,
+                                    username=username,
+                                    password=password,
+                                    show_verification=True)
+            
+            if verification.expires_at < datetime.utcnow():
+                flash('Verification code has expired. Please request a new one.', 'error')
+                return render_template('register.html', 
+                                    email=email,
+                                    username=username,
+                                    password=password,
+                                    show_verification=True)
+            
+            # Check if username or email already exists
+            if User.query.filter_by(username=username).first():
+                flash('Username already exists. Please choose a different one.', 'error')
+                return render_template('register.html', 
+                                    email=email,
+                                    password=password,
+                                    show_verification=True)
+            
+            if User.query.filter_by(email=email).first():
+                flash('Email already registered. Please use a different email.', 'error')
+                return render_template('register.html',
+                                    username=username,
+                                    password=password,
+                                    show_verification=True)
+            
+            # Create new user with email
+            new_user = User(
+                username=username,
+                email=email,  # This is the critical fix
+                role='user'
+            )
+            new_user.set_password(password)
+            db.session.add(new_user)
+            
+            # Clean up verification code
+            db.session.delete(verification)
+            db.session.commit()
+            
+            flash('Account created successfully! You can now log in.', 'success')
+            return redirect(url_for('login'))
+        
+        # Step 2: Send verification code
+        else:
+            email = request.form.get('email')
+            username = request.form.get('username')
+            password = request.form.get('password')
+            
+            if not all([email, username, password]):
+                flash('All fields are required!', 'error')
+                return render_template('register.html')
+            
+            # Check if username or email exists
+            if User.query.filter_by(username=username).first():
+                flash('Username already exists. Please choose a different one.', 'error')
+                return render_template('register.html')
+            
+            if User.query.filter_by(email=email).first():
+                flash('Email already registered. Please use a different email.', 'error')
+                return render_template('register.html')
+            
+            # Generate and send verification code
+            code = generate_verification_code()
+            
+            # Delete any existing verification for this email
+            VerificationCode.query.filter_by(email=email).delete()
+            
+            # Create new verification record
+            verification = VerificationCode(email=email, code=code)
+            db.session.add(verification)
+            db.session.commit()
+            
+            try:
+                send_verification_email(email, code)
+                flash('Verification code sent to your email. Please check your inbox.', 'success')
+                return render_template('register.html', 
+                                    email=email,
+                                    username=username,
+                                    password=password,
+                                    show_verification=True)
+            except Exception as e:
+                db.session.rollback()
+                flash('Failed to send verification email. Please try again.', 'error')
+                return render_template('register.html')
 
     return render_template('register.html')
 
@@ -539,7 +915,47 @@ def analytics():
 @login_required
 def saved():
     """Renders the saved articles page."""
-    return render_template('saved.html')
+    saved_articles = SavedArticle.query.filter_by(user_id=current_user.id).order_by(SavedArticle.saved_at.desc()).all()
+    return render_template('saved.html', saved_articles=saved_articles)
+
+@app.route('/save_article/<int:article_id>', methods=['POST'])
+@login_required
+def save_article(article_id):
+    """Saves an article for the current user."""
+    article = Article.query.get_or_404(article_id)
+    
+    # Check if already saved
+    existing_save = SavedArticle.query.filter_by(
+        user_id=current_user.id,
+        article_id=article_id
+    ).first()
+    
+    if existing_save:
+        return jsonify({'status': 'already_saved'})
+    
+    saved_article = SavedArticle(
+        user_id=current_user.id,
+        article_id=article_id,
+        saved_at=datetime.utcnow()
+    )
+    db.session.add(saved_article)
+    db.session.commit()
+    
+    return jsonify({'status': 'success'})
+
+@app.route('/unsave_article/<int:article_id>', methods=['POST'])
+@login_required
+def unsave_article(article_id):
+    """Removes an article from the current user's saved articles."""
+    saved_article = SavedArticle.query.filter_by(
+        user_id=current_user.id,
+        article_id=article_id
+    ).first_or_404()
+    
+    db.session.delete(saved_article)
+    db.session.commit()
+    
+    return jsonify({'status': 'success'})
 
 @app.route('/settings')
 @login_required
@@ -548,14 +964,124 @@ def settings():
     return render_template('settings.html')
 
 # --- API Endpoints for Frontend (e.g., index.html to fetch articles) ---
-
 @app.route('/api/articles')
 def get_articles():
     """API endpoint to fetch articles for the homepage."""
     articles = Article.query.order_by(Article.published_at.desc()).all()
     return jsonify([article.to_dict() for article in articles])
 
-# --- Admin Panel Routes ---
+@app.route('/api/recommendations')
+@login_required
+def get_recommendations():
+    """Get personalized article recommendations for the current user"""
+    recommender = HybridRecommender(db)
+    recommendations = recommender.get_recommendations(current_user.id, num_recommendations=5)
+    return jsonify([article.to_dict() for article in recommendations])
+
+    
+@app.route('/api/user_analytics')
+@login_required
+def user_analytics():
+    """Simplified analytics endpoint showing tag distribution and daily reading time"""
+    # Get all reading activities for the current user
+    activities = ReadingActivity.query.filter_by(
+        user_id=current_user.id
+    ).order_by(
+        ReadingActivity.date.desc()
+    ).all()
+
+    # Prepare data for charts
+    tag_distribution = defaultdict(int)
+    daily_reading = defaultdict(int)
+    
+    for activity in activities:
+        # Calculate reading time in minutes
+        minutes = activity.time_spent / 60
+        
+        # Update tag distribution
+        if activity.tags:
+            tag_distribution[activity.tags] += minutes
+        
+        # Update daily reading time
+        date_str = activity.date.strftime('%Y-%m-%d')
+        daily_reading[date_str] += minutes
+
+    # Convert to lists for charting
+    tags = list(tag_distribution.keys())
+    tag_minutes = list(tag_distribution.values())
+    
+    dates = sorted(daily_reading.keys())
+    daily_minutes = [daily_reading[date] for date in dates]
+
+    return jsonify({
+        'tags': tags,
+        'tag_minutes': tag_minutes,
+        'dates': dates,
+        'daily_minutes': daily_minutes
+    })
+
+@app.route('/api/record_reading_activity', methods=['POST'])
+@login_required
+def record_reading_activity():
+    data = request.get_json()
+    article_id = data.get('article_id')
+    time_spent = data.get('time_spent', 0)
+    
+    article = Article.query.get_or_404(article_id)
+    
+    # Get the first tag or default to 'General'
+    tag = article.tags.split(',')[0] if article.tags else 'General'
+    
+    # Get existing activity for today or create new
+    today = datetime.utcnow().date()
+    activity = ReadingActivity.query.filter_by(
+        user_id=current_user.id,
+        article_id=article_id,
+        date=today
+    ).first()
+    
+    if activity:
+        # Update existing record
+        activity.time_spent += time_spent
+    else:
+        # Create new record
+        activity = ReadingActivity(
+            user_id=current_user.id,
+            article_id=article_id,
+            time_spent=time_spent,
+            date=today,
+            tags=tag,
+            recorded_at=datetime.utcnow()
+        )
+        db.session.add(activity)
+    
+    db.session.commit()
+    return jsonify({'status': 'success'})
+
+
+@app.route('/api/change_password', methods=['POST'])
+@login_required
+def change_password():
+    """Change the user's password after verifying current password."""
+    data = request.get_json()
+    current_password = data.get('current_password')
+    new_password = data.get('new_password')
+    
+    if not current_password or not new_password:
+        return jsonify({'message': 'Current password and new password are required'}), 400
+    
+    if len(new_password) < 8:
+        return jsonify({'message': 'New password must be at least 8 characters long'}), 400
+    
+    # Verify current password
+    if not current_user.check_password(current_password):
+        return jsonify({'message': 'Current password is incorrect'}), 401
+    
+    # Set new password
+    current_user.set_password(new_password)
+    db.session.commit()
+    
+    return jsonify({'message': 'Password changed successfully'}), 200
 
 @app.route('/admin')
 @admin_required
@@ -582,6 +1108,13 @@ def admin_delete_user(user_id):
         flash('You cannot delete your own account from here. Please logout first.', 'error')
         return redirect(url_for('admin_users'))
 
+    # First delete all associated reading activities
+    ReadingActivity.query.filter_by(user_id=user_id).delete()
+    
+    # Then delete all saved articles
+    SavedArticle.query.filter_by(user_id=user_id).delete()
+    
+    # Finally delete the user
     db.session.delete(user_to_delete)
     db.session.commit()
     flash(f'User "{user_to_delete.username}" deleted successfully.', 'success')
@@ -605,7 +1138,6 @@ def admin_toggle_admin(user_id):
     db.session.commit()
     return redirect(url_for('admin_users'))
 
-
 @app.route('/admin/articles')
 @admin_required
 def admin_articles():
@@ -616,11 +1148,26 @@ def admin_articles():
 @app.route('/admin/articles/delete/<int:article_id>', methods=['POST'])
 @admin_required
 def admin_delete_article(article_id):
-    """Admin panel to delete an article."""
+    """Admin panel to delete an article and all its references."""
     article_to_delete = Article.query.get_or_404(article_id)
-    db.session.delete(article_to_delete)
-    db.session.commit()
-    flash(f'Article "{article_to_delete.title}" deleted successfully.', 'success')
+    
+    try:
+        # First delete all SavedArticle records that reference this article
+        SavedArticle.query.filter_by(article_id=article_id).delete()
+        
+        # Then delete all ReadingActivity records that reference this article
+        ReadingActivity.query.filter_by(article_id=article_id).delete()
+        
+        # Finally delete the article itself
+        db.session.delete(article_to_delete)
+        db.session.commit()
+        
+        flash(f'Article "{article_to_delete.title}" and all its references deleted successfully.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error deleting article: {str(e)}', 'error')
+        app.logger.error(f"Error deleting article {article_id}: {str(e)}")
+    
     return redirect(url_for('admin_articles'))
 
 @app.route('/admin/scrape', methods=['GET', 'POST'])
@@ -646,30 +1193,16 @@ def admin_scrape_news():
         return redirect(url_for('admin_articles'))
     return render_template('admin/scrape_news.html')
 
-
-# --- Ensure tables and default admin user exist ---
-with app.app_context():
-    db.create_all()
-
-    # Create default admin user if not exists
-    if not User.query.filter_by(username='admin').first():
-        admin_user = User(username='admin', role='admin')
-        admin_user.set_password('adminpass')
-        db.session.add(admin_user)
-        db.session.commit()
-        print(" Created default admin user: username='admin', password='adminpass'")
-
-# --- Setup scheduler (only once in production with gunicorn) ---
-if os.environ.get("RUN_MAIN") != "true":  # prevents duplicate jobs in reloader
-    scheduler.start()
-    with app.app_context():
-        scheduler.add_job(id='initial_scrape', func=scheduled_scrape_news, trigger='date', run_date=datetime.now())
-        scheduler.add_job(id='hourly_scrape', func=scheduled_scrape_news, trigger='interval', hours=1)
-        print("Scheduled initial and hourly scraping jobs.")
-
-# --- Run server if using 'python app.py' directly (not used by gunicorn) ---
 if __name__ == '__main__':
-    import os
-    from datetime import datetime, timedelta
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    # Initialize database first
+    initialize_database()
+    
+    # Register and start scheduler
+    register_scheduler()
+    
+    try:
+        app.run(debug=True)
+    except (KeyboardInterrupt, SystemExit):
+        # Proper shutdown
+        scheduler.shutdown()
+        raise

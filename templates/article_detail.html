@@ -6,11 +6,24 @@
 <div class="container mx-auto p-6 bg-white dark:bg-gray-800 rounded-lg shadow-lg font-sans">
 
     {# --- Article Image --- #}
+    {% if article.image_url %}
     <img src="{{ article.image_url }}" alt="{{ article.title or 'No Image' }}" class="w-full h-96 object-cover rounded-lg mb-6">    
+    {% endif %}
 
     {# --- Title and Metadata --- #}
-    <h1 class="text-4xl font-extrabold text-gray-900 dark:text-white mb-3 leading-snug">{{ article.title or "Untitled Article" }}</h1>
-    <div class="flex flex-wrap items-center text-sm text-gray-600 dark:text-gray-400 mb-4 gap-4">
+    <div class="flex justify-between items-start mb-3">
+        <h1 class="text-4xl font-extrabold text-gray-900 dark:text-white leading-snug">{{ article.title or "Untitled Article" }}</h1>
+        <button id="save-button" onclick="toggleSave({{ article.id }})" class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="{% if current_user.is_authenticated and article in current_user.saved_articles %}currentColor{% else %}none{% endif %}" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+            </svg>
+        </button>
+    </div>
+
+    <div class="flex flex-wrap items-center text-sm text-gray-600 dark:text-gray-400 mb-6 gap-4">
+        {% if article.author %}
+        <span>By {{ article.author }}</span>
+        {% endif %}
         <span>{{ article.source or "Unknown Source" }}</span>
         <span>{{ article.time_to_read or "N/A" }}</span>
         {% if article.published_at %}
@@ -30,16 +43,32 @@
     </section>
 
     {# --- Full Article Chunked Section --- #}
-    <section class="space-y-6">
+    <section class="space-y-6" id="article-content">
         <h2 class="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Full Article</h2>
 
-        {% for paragraph in article.preview_content.split('\n\n') %}
-            <div class="p-5 rounded-lg shadow-sm bg-gray-50 dark:bg-gray-700 text-lg leading-relaxed text-gray-800 dark:text-gray-200" style="font-family: 'Inter', 'Segoe UI', sans-serif;">
-                {{ paragraph | safe }}
+        {% if article.content %}
+            {% for paragraph in article.content.split('\n\n') %}
+                <div class="p-5 rounded-lg shadow-sm bg-gray-50 dark:bg-gray-700 text-lg leading-relaxed text-gray-800 dark:text-gray-200" style="font-family: 'Inter', 'Segoe UI', sans-serif;">
+                    {{ paragraph | safe }}
+                </div>
+            {% endfor %}
+        {% else %}
+            <div class="p-5 rounded-lg shadow-sm bg-gray-50 dark:bg-gray-700 text-lg leading-relaxed text-gray-800 dark:text-gray-200">
+                No content available for this article.
             </div>
-        {% endfor %}
+        {% endif %}
     </section>
 
+    {# --- Tags --- #}
+    {% if article.tags %}
+    <div class="mt-8 flex flex-wrap gap-2">
+        {% for tag in article.tags.split(',') %}
+        <span class="px-3 py-1 bg-blue-100 text-blue-800 text-sm font-medium rounded-full dark:bg-blue-900 dark:text-blue-300">
+            {{ tag.strip() }}
+        </span>
+        {% endfor %}
+    </div>
+    {% endif %}
 
     {# --- Back Button --- #}
     <div class="mt-10">
@@ -49,4 +78,134 @@
     </div>
 
 </div>
+
+<script>
+    // Save/unsave functionality
+    function toggleSave(articleId) {
+        fetch(`/save_article/${articleId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+        })
+        .then(response => response.json())
+        .then(data => {
+            const saveButton = document.getElementById('save-button');
+            if (data.status === 'success') {
+                saveButton.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="currentColor" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                    </svg>
+                `;
+            } else if (data.status === 'already_saved') {
+                // If already saved, unsave it
+                fetch(`/unsave_article/${articleId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        saveButton.innerHTML = `
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                            </svg>
+                        `;
+                    }
+                });
+            }
+        })
+        .catch(error => console.error('Error:', error));
+    }
+
+    // Reading time tracking
+    document.addEventListener('DOMContentLoaded', function() {
+        const articleId = {{ article.id }};
+        const articleContentDiv = document.getElementById('article-content');
+        let startTime = Date.now();
+        let scrollPercentage = 0;
+        let initialRecordSent = false;
+
+        // Record initial reading activity (10 seconds by default)
+        if (!initialRecordSent) {
+            initialRecordSent = true;
+            
+            // Determine period of day
+            const currentHour = new Date().getHours();
+            let period = 'evening';
+            if (currentHour >= 5 && currentHour < 12) period = 'morning';
+            else if (currentHour >= 12 && currentHour < 17) period = 'afternoon';
+            
+            fetch('/api/record_reading_activity', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    article_id: articleId,
+                    time_spent: 10,  // Default 10 seconds for clicking
+                    read_percentage: 0.1,  // Default 10% for clicking
+                    period_of_day: period
+                })
+            }).catch(error => console.error('Error sending initial reading activity:', error));
+        }
+
+        function updateReadingMetrics() {
+            if (!articleContentDiv) return;
+
+            const contentHeight = articleContentDiv.scrollHeight;
+            const viewportHeight = window.innerHeight;
+            const scrollY = window.scrollY || window.pageYOffset;
+
+            // Calculate current scroll depth as a percentage of content height
+            const articleOffsetTop = articleContentDiv.getBoundingClientRect().top + window.scrollY;
+            const articleBottom = articleOffsetTop + contentHeight;
+
+            let currentScrollDepth = 0;
+            if (window.scrollY + viewportHeight > articleOffsetTop) {
+                currentScrollDepth = (window.scrollY + viewportHeight - articleOffsetTop) / contentHeight;
+            }
+            if (currentScrollDepth < 0) currentScrollDepth = 0;
+            if (currentScrollDepth > 1) currentScrollDepth = 1;
+
+            scrollPercentage = Math.max(scrollPercentage, currentScrollDepth);
+        }
+
+        function sendReadingActivity() {
+            const timeSpent = Math.round((Date.now() - startTime) / 1000); // in seconds
+            const finalReadPercentage = parseFloat(scrollPercentage.toFixed(2));
+
+            // Only send if user is logged in and there's actual activity
+            if (timeSpent > 0 || finalReadPercentage > 0) {
+                fetch('/api/record_reading_activity', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        article_id: articleId,
+                        time_spent: timeSpent,
+                        read_percentage: finalReadPercentage
+                    })
+                })
+                .catch(error => console.error('Error sending reading activity:', error));
+            }
+            startTime = Date.now(); // Reset timer after sending
+        }
+
+        // Send data periodically (e.g., every 30 seconds)
+        setInterval(sendReadingActivity, 30000);
+
+        // Update scroll percentage on scroll
+        window.addEventListener('scroll', updateReadingMetrics);
+
+        // Send data when user leaves the page or closes the tab
+        window.addEventListener('beforeunload', sendReadingActivity);
+
+        // Initial update
+        updateReadingMetrics();
+    });
+</script>
 {% endblock %}
