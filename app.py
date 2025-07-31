@@ -549,26 +549,32 @@ def scheduled_scrape_news():
 def initialize_database():
     """Initialize the database with default data if empty."""
     with app.app_context():
-        # Create all database tables
-        db.create_all()
-        
-        # Check if we have any articles
-        if db.session.query(db.Model.metadata.tables['article']).count() == 0:
-            print("No articles found in database. Running initial scrape...")
-            scheduled_scrape_news()
-            summarize_new_articles(app, db, Article)
-        
-        # Ensure admin exists
-        if not User.query.filter_by(username='admin').first():
-            admin_user = User(
-                username='admin',
-                email='admin@intellinews.com',  # Add email field
-                role='admin'
-            )
-            admin_user.set_password('adminpass')
-            db.session.add(admin_user)
-            db.session.commit()
-            print("Created default admin user: username='admin', email='admin@intellinews.com', password='adminpass'")
+        try:
+            # Create all database tables
+            db.create_all()
+            
+            # Check if we have any articles
+            if Article.query.count() == 0:
+                print("No articles found in database. Running initial scrape...")
+                scheduled_scrape_news()
+                summarize_new_articles(app, db, Article)
+            
+            # Ensure admin exists
+            if not User.query.filter_by(username='admin').first():
+                admin_user = User(
+                    username='admin',
+                    email='admin@intellinews.com',
+                    role='admin'
+                )
+                admin_user.set_password('adminpass')
+                db.session.add(admin_user)
+                db.session.commit()
+                print("Created default admin user")
+                
+        except Exception as e:
+            print(f"Error initializing database: {e}")
+            db.session.rollback()
+            raise
 
 def register_scheduler():
     scheduler.init_app(app)
@@ -1195,7 +1201,9 @@ def admin_scrape_news():
 
 if __name__ == '__main__':
     # Initialize database first
-    initialize_database()
+    with app.app_context():
+        db.create_all()
+        initialize_database()
     
     # Register and start scheduler
     register_scheduler()
