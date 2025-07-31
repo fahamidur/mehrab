@@ -21,7 +21,10 @@ from flask import current_app
 # Import Flask-APScheduler
 from flask_apscheduler import APScheduler
 from flask_mail import Mail, Message
-from models import db, User, Article, SavedArticle, ReadingActivity, VerificationCode
+from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime, timedelta
+from flask_login import UserMixin
+from werkzeug.security import generate_password_hash, check_password_hash
 from nlp_summarizer import summarize_new_articles
 
 # Initialize Flask app
@@ -44,11 +47,86 @@ app.config['MAIL_DEFAULT_SENDER'] = ('IntelliNews Team', 'frahaman832@gmail.com'
 app.config['SCHEDULER_API_ENABLED'] = True
 
 # --- Initialize extensions ---
-db.init_app(app)
+db = SQLAlchemy(app)  
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 mail = Mail(app)
 scheduler = APScheduler()
+
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(20), unique=True, nullable=False)
+    password_hash = db.Column(db.String(128), nullable=False)
+    role = db.Column(db.String(10), default='user', nullable=False)
+    saved_articles = db.relationship('SavedArticle', backref='user', lazy=True)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+class Article(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(255), nullable=False)
+    summary = db.Column(db.Text, nullable=True)
+    content = db.Column(db.Text, nullable=True)
+    category = db.Column(db.String(50), nullable=True)
+    source = db.Column(db.String(100), nullable=True)
+    image_url = db.Column(db.String(255), nullable=True)
+    time_to_read = db.Column(db.String(20), nullable=True)
+    published_at = db.Column(db.DateTime, nullable=True)
+    scraped_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    author = db.Column(db.String(100), nullable=True)
+    tags = db.Column(db.String(255), nullable=True)
+    saved_by_users = db.relationship('SavedArticle', backref='article', cascade='all, delete-orphan', lazy=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'title': self.title,
+            'summary': self.summary,
+            'content': self.content,
+            'category': self.category,
+            'source': self.source,
+            'image': self.image_url,
+            'timeToRead': self.time_to_read,
+            'published_at': self.published_at.isoformat() if self.published_at else None,
+            'scraped_at': self.scraped_at.isoformat(),
+            'author': self.author,
+            'tags': self.tags.split(',') if self.tags else []
+        }
+
+class SavedArticle(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
+    article_id = db.Column(db.Integer, db.ForeignKey('article.id', ondelete='CASCADE'), nullable=False)
+    saved_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    __table_args__ = (db.UniqueConstraint('user_id', 'article_id', name='unique_user_article'),)
+
+class ReadingActivity(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    article_id = db.Column(db.Integer, db.ForeignKey('article.id'), nullable=False)
+    time_spent = db.Column(db.Integer, nullable=False)
+    date = db.Column(db.Date, nullable=False, index=True)
+    tags = db.Column(db.String(50), nullable=True)
+    recorded_at = db.Column(db.DateTime, default=datetime.utcnow)
+    user = db.relationship('User', backref='reading_activities')
+    article = db.relationship('Article', backref='reading_activities')
+
+class VerificationCode(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    code = db.Column(db.String(6), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    
+    def __init__(self, email, code):
+        self.email = email
+        self.code = code
+        self.expires_at = datetime.utcnow() + timedelta(minutes=10)
 
 # --- Flask-Login User Loader ---
 @login_manager.user_loader
@@ -549,32 +627,28 @@ def scheduled_scrape_news():
 def initialize_database():
     """Initialize the database with default data if empty."""
     with app.app_context():
-        try:
-            # Create all database tables
-            db.create_all()
-            
-            # Check if we have any articles
-            if Article.query.count() == 0:
-                print("No articles found in database. Running initial scrape...")
-                scheduled_scrape_news()
-                summarize_new_articles(app, db, Article)
-            
-            # Ensure admin exists
-            if not User.query.filter_by(username='admin').first():
-                admin_user = User(
-                    username='admin',
-                    email='admin@intellinews.com',
-                    role='admin'
-                )
-                admin_user.set_password('adminpass')
-                db.session.add(admin_user)
-                db.session.commit()
-                print("Created default admin user")
-                
-        except Exception as e:
-            print(f"Error initializing database: {e}")
-            db.session.rollback()
-            raise
+        # Create all database tables
+        db.create_all()
+        
+        # Check if we have any articles
+        if Article.query.count() == 0:
+            print("No articles found in database. Running initial scrape...")
+            scheduled_scrape_news()
+            summarize_new_articles(app, db, Article)
+        
+        # Ensure admin exists
+        if not User.query.filter_by(username='admin').first():
+            admin_user = User(
+                username='admin',
+                email='admin@intellinews.com',
+                role='admin'
+            )
+            admin_user.set_password('adminpass')
+            db.session.add(admin_user)
+            db.session.commit()
+            print("Created default admin user")
+
+initialize_database()
 
 def register_scheduler():
     scheduler.init_app(app)
