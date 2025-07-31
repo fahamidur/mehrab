@@ -1,2 +1,2 @@
 # URL
-https://mehrab.onrender.com/
+https://intelinews.onrender.com
