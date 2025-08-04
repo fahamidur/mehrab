@@ -88,7 +88,7 @@ class Article(db.Model):
             'title': self.title,
             'summary': self.summary,
             'content': self.content,
-            'category': self.category,
+            'category': self.category, 
             'source': self.source,
             'image': self.image_url,
             'timeToRead': self.time_to_read,
@@ -288,20 +288,18 @@ class HybridRecommender:
         
         return score
 
-# --- BBC News Scraper Class ---
-class BBCNewsScraper:
+class MultiNewsScraper:
     def __init__(self):
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept-Language': 'en-US,en;q=0.5'
         })
-        self.base_url = 'https://www.bbc.com'
+        self.rate_limit_delay = 1.0  # seconds between requests
         self.visited_urls = set()
-        self.rate_limit_delay = 0.5  # seconds between requests
 
     def get_page(self, url):
-        """Fetch a page with error handling"""
+        """Fetch a page with error handling."""
         try:
             time.sleep(self.rate_limit_delay)
             response = self.session.get(url)
@@ -311,142 +309,155 @@ class BBCNewsScraper:
             print(f"Error fetching {url}: {e}")
             return None
 
+    def _extract_links(self, html, site):
+        """Extract article links based on the news site."""
+        soup = BeautifulSoup(html, 'html.parser')
+        links = set()
+
+        if site == 'bbc':
+            for link in soup.select('a[data-testid="internal-link"], a.qa-heading-link, a.gs-c-promo-heading__link, a.ssrcss-ug1v3a-PromoLink'):
+                href = link.get('href')
+                if href and '/news/' in href:
+                    full_url = urljoin('https://www.bbc.com', href)
+                    if (re.match(r'.*/news/articles/[a-z0-9]+$', full_url) or
+                        re.match(r'.*/news/[a-z0-9-]+-\d+$', full_url)) and \
+                       'live' not in full_url.lower():
+                        links.add(full_url)
+        elif site == 'cnn':
+            for link in soup.select('a.container__link'):
+                href = link.get('href')
+                if href and '/202' in href:
+                    links.add(f"https://www.cnn.com{href}" if not href.startswith('http') else href)
+        elif site == 'npr':
+            for link in soup.select('h2.title > a[href*="/202"], a.title[href*="/202"]'):
+                href = link.get('href')
+                if href and '/202' in href:
+                    links.add(href if href.startswith('http') else f"https://www.npr.org{href}")
+        elif site == 'apnews':
+            for link in soup.select('a[href*="/article/"]'):
+                href = link.get('href')
+                if href and '/article/' in href:
+                    links.add(href if href.startswith('http') else f"https://apnews.com{href}")
+        elif site == 'aljazeera':
+            for link in soup.select('a.u-clickable-card__link'):
+                href = link.get('href')
+                if href and '/202' in href:
+                    links.add(f"https://www.aljazeera.com{href}")
+
+        return list(links)[:10]  # Return up to 10 articles per site
+
     def _generate_summary(self, content, max_sentences=3):
         """Generate a proper summary from the content by selecting key sentences."""
         if not content:
-            return ""
-    
-        summary = "Loading Soon ..."
-        
-        return summary
-
-
-
-
-        
-
-    def extract_category_links(self, category_url, max_pages=3):
-        """Extract article links from a category page with pagination"""
-        article_links = set()
-        page_num = 1
-
-        while page_num <= max_pages:
-            page_to_scrape = category_url
-            if page_num > 1:
-                print(f"Limiting to first page for category {category_url} due to complex BBC pagination.")
-                break
-
-            print(f"Scraping category page {page_num}: {page_to_scrape}")
-            html = self.get_page(page_to_scrape)
-            if not html:
-                print(f"Failed to fetch HTML for {page_to_scrape}")
-                break
-
-            soup = BeautifulSoup(html, 'html.parser')
-
-            links = soup.select('a[data-testid="internal-link"], a.qa-heading-link, a.gs-c-promo-heading__link, a.ssrcss-ug1v3a-PromoLink')
-            
-            new_links = set()
-            for link in links:
-                href = link.get('href')
-                if href:
-                    full_url = urljoin(self.base_url, href)
-                    if (re.match(r'.*/news/articles/[a-z0-9]+$', full_url) or
-                        re.match(r'.*/news/[a-z0-9-]+-\d+$', full_url)) and \
-                       'live' not in full_url.lower() and \
-                       full_url != self.base_url and \
-                       '/news/' in full_url:
-                        new_links.add(full_url)
-                    else:
-                        print(f"Filtered out non-article link: {full_url}")
-
-            if not new_links:
-                print(f"No new article links found on page {page_to_scrape}")
-                break
-
-            article_links.update(new_links)
-            page_num += 1
-
-        print(f"Found {len(article_links)} unique article links from category {category_url}")
-        return list(article_links)[:50]
-
-    def _extract_title(self, soup):
-        """Extract article title using common BBC selectors."""
-        title_tag = soup.find('h1', class_='sc-f98b1ad2-0 dfvxux') or \
-                    soup.find('h1', class_='ssrcss-gc7udw-StyledHeading e1fj1fc10') or \
-                    soup.find('h1', class_='qa-story-headline') or \
-                    soup.find('h1', class_='story-body__h1')
-        return title_tag.get_text(strip=True) if title_tag else None
-
-    def _extract_timestamp(self, soup):
-        """Extract publication timestamp."""
-        time_tag = soup.find('time', class_=re.compile(r'sc-801dd632-2|IvNnh')) or \
-                   soup.find('time')
-        if time_tag and 'datetime' in time_tag.attrs:
-            try:
-                return datetime.fromisoformat(time_tag['datetime'].replace('Z', '+00:00'))
-            except ValueError:
-                print(f"Warning: Could not parse datetime from '{time_tag['datetime']}'")
-                pass
-        return None
-
-    def _extract_author(self, soup):
-        """Extract author information."""
-        author_div = soup.find('div', class_='ssrcss-68pt20-Text-TextContributorName') or \
-                     soup.find('span', class_='qa-story-byline')
-        return author_div.get_text(strip=True) if author_div else None
-
-    def _extract_category_from_url(self, url):
-        """Extract category name from URL (e.g., /news/technology -> technology)."""
-        path = urlparse(url).path
-        parts = [p for p in path.split('/') if p]
-        if 'news' in parts:
-            try:
-                news_index = parts.index('news')
-                if news_index + 1 < len(parts):
-                    potential_category = parts[news_index + 1]
-                    if not re.match(r'^[a-z0-9-]+-\d+$', potential_category) and \
-                       not re.match(r'^\d+$', potential_category):
-                        return potential_category.replace('-', ' ').title()
-            except ValueError:
-                pass
-        return 'General'
+            return "Loading Soon ..."
+        return "Loading Soon ..."  # Will be replaced by NLP summarizer
 
     def _get_tag_from_url(self, url):
         """Extract and return only the approved tag from the URL"""
         if not url:
-            return 'Politics'
+            return 'General'
             
         url = url.lower()
-        if 'technology' in url:
+        if 'technology' in url or 'tech' in url:
             return 'Technology'
         elif 'politics' in url:
             return 'Politics'
-        elif 'science' in url or 'environment' in url:
+        elif 'science' in url or 'environment' in url or 'health' in url:
             return 'Science'
-        elif 'business' in url:
+        elif 'business' in url or 'economy' in url or 'finance' in url:
             return 'Business'
-        elif 'entertainment' in url or 'arts' in url:
+        elif 'entertainment' in url or 'arts' in url or 'culture' in url:
             return 'Entertainment'
-        elif 'sport' in url:
+        elif 'sport' in url or 'sports' in url:
             return 'Sport'
-        return 'Politics'
+        return 'General'
 
-    def _extract_tags(self, soup, category):
-        """Return empty list - tags are determined by URL only"""
-        return []
+    def _extract_category_from_url(self, url):
+        """Extract category name from URL."""
+        path = urlparse(url).path
+        parts = [p for p in path.split('/') if p]
+        if len(parts) > 1:
+            return parts[1].replace('-', ' ').title()
+        return 'General'
 
-    def _extract_content(self, soup):
-        """Extract main article content paragraphs."""
-        content_blocks = soup.select('div[data-component="text-block"] p, div.story-body__inner p, article div[data-component="text-block"] p, div.ssrcss-1q0x1qg-Paragraph.eq5iqo00')
-        return '\n\n'.join(p.get_text(strip=True) for p in content_blocks if p.get_text(strip=True))
+    def _extract_article_data(self, url, html):
+        """Parse article content based on the news site."""
+        soup = BeautifulSoup(html, 'html.parser')
+        domain = urlparse(url).netloc
+        data = {'url': url}
+
+        if 'bbc.com' in domain:
+            data.update({
+                'title': soup.find('h1', class_='sc-f98b1ad2-0 dfvxux').get_text(strip=True) if soup.find('h1', class_='sc-f98b1ad2-0 dfvxux') else None,
+                'content': '\n\n'.join([p.get_text(strip=True) for p in soup.select('div[data-component="text-block"] p, div.story-body__inner p, article p, p.ssrcss-1q0x1qg-Paragraph')]),
+                'author': soup.find('div', class_='ssrcss-68pt20-Text-TextContributorName').get_text(strip=True) if soup.find('div', class_='ssrcss-68pt20-Text-TextContributorName') else None,
+                'published_at': soup.find('time')['datetime'] if soup.find('time') and 'datetime' in soup.find('time').attrs else None,
+                'image_url': self._extract_images(soup),
+                'source': 'BBC News'
+            })
+        elif 'cnn.com' in domain:
+            data.update({
+                'title': soup.find('h1').get_text(strip=True) if soup.find('h1') else None,
+                'content': '\n\n'.join([p.get_text(strip=True) for p in soup.select('div.article__content p, section.article__content p, div.paragraph')]),
+                'author': soup.find('span', class_='byline__name').get_text(strip=True) if soup.find('span', class_='byline__name') else None,
+                'published_at': soup.find('div', class_='timestamp').get_text(strip=True) if soup.find('div', class_='timestamp') else None,
+                'image_url': soup.find('img', class_='image__dam-img').get('src') if soup.find('img', class_='image__dam-img') else None,
+                'source': 'CNN'
+            })
+        elif 'npr.org' in domain:
+            data.update({
+                'title': soup.find('h1').get_text(strip=True) if soup.find('h1') else None,
+                'content': '\n\n'.join([p.get_text(strip=True) for p in soup.select('div.storytext p, article p, p.storytext')]),
+                'author': soup.find('div', class_='byline__byline').get_text(strip=True) if soup.find('div', class_='byline__byline') else None,
+                'published_at': soup.find('time')['datetime'] if soup.find('time') and 'datetime' in soup.find('time').attrs else None,
+                'image_url': soup.find('img', class_='img')['src'] if soup.find('img', class_='img') else None,
+                'source': 'NPR'
+            })
+        elif 'apnews.com' in domain:
+            data.update({
+                'title': soup.find('h1').get_text(strip=True) if soup.find('h1') else None,
+                'content': '\n\n'.join([p.get_text(strip=True) for p in soup.select('div.Article p, div.RichTextStoryBody p, article p, p.Component-root')]),
+                'author': soup.find('span', class_='Component-byline').get_text(strip=True) if soup.find('span', class_='Component-byline') else None,
+                'published_at': soup.find('span', class_='Timestamp').get_text(strip=True) if soup.find('span', class_='Timestamp') else None,
+                'image_url': soup.find('img', class_='Image')['src'] if soup.find('img', class_='Image') else None,
+                'source': 'AP News'
+            })
+        elif 'aljazeera.com' in domain:
+            data.update({
+                'title': soup.find('h1').get_text(strip=True) if soup.find('h1') else None,
+                'content': '\n\n'.join([p.get_text(strip=True) for p in soup.select('div.article__content p, div.wysiwyg p, article p, p.article__content')]),
+                'author': soup.find('div', class_='article-author').get_text(strip=True) if soup.find('div', class_='article-author') else None,
+                'published_at': soup.find('time')['datetime'] if soup.find('time') and 'datetime' in soup.find('time').attrs else None,
+                'image_url': soup.find('img', class_='article-featured-image').get('src') if soup.find('img', class_='article-featured-image') else None,
+                'source': 'Al Jazeera'
+            })
+
+        # Process common fields
+        if data.get('published_at'):
+            try:
+                data['published_at'] = datetime.fromisoformat(data['published_at'].replace('Z', '+00:00'))
+            except ValueError:
+                try:
+                    data['published_at'] = datetime.strptime(data['published_at'], '%Y-%m-%dT%H:%M:%S%z')
+                except:
+                    data['published_at'] = None
+
+        # Get category and tags
+        data['category'] = "Article"
+        data['tags'] = [self._get_tag_from_url(url)]
+        
+        # Generate summary
+        data['summary'] = self._generate_summary(data.get('content'))
+        
+        # Calculate time to read
+        word_count = len(data.get('content', '').split())
+        words_per_minute = 200
+        data['time_to_read'] = f"{max(1, round(word_count / words_per_minute))} min read" if word_count > 0 else "N/A"
+        
+        return data
 
     def _extract_images(self, soup):
-        """Extract the highest resolution image URL, prioritizing WebP. If no WebP, get the first highest resolution image."""
-        
-        highest_res_webp_url = None
-        highest_res_other_url = None
-
+        """Extract the highest resolution image URL."""
         for img in soup.find_all('img', srcset=True):
             try:
                 srcset_entries = [entry.strip().split() for entry in img['srcset'].split(',') if entry.strip()]
@@ -457,106 +468,68 @@ class BBCNewsScraper:
                     srcset_entries,
                     key=lambda x: int(re.search(r'(\d+)w', x[1]).group(1)) if len(x) == 2 and re.search(r'(\d+)w', x[1]) else 0
                 )
-                current_image_url = urljoin(self.base_url, largest_candidate[0])
-
-                if current_image_url.endswith('.webp'):
-                    if not highest_res_webp_url:
-                        highest_res_webp_url = current_image_url
-                elif not highest_res_other_url:
-                    highest_res_other_url = current_image_url
-
+                image_url = largest_candidate[0]
+                if image_url.startswith('http'):
+                    return image_url
+                return urljoin('https://' + urlparse(img['srcset']).netloc, image_url)
             except Exception as e:
                 continue
         
-        if highest_res_webp_url:
-            return highest_res_webp_url
-        elif highest_res_other_url:
-            return highest_res_other_url
-        
-        main_img_element = soup.find('img', class_='ssrcss-1mj940c-Image e1gacx6g0') or \
-                           soup.find('img', class_='qa-story-image') or \
-                           soup.find('img', class_='js-image-replace') or \
-                           soup.find('img')
-
-        if main_img_element:
-            direct_src_url = main_img_element.get('src') or main_img_element.get('data-src')
-            if direct_src_url:
-                if direct_src_url.endswith('.webp'):
-                    return urljoin(self.base_url, direct_src_url)
-                return urljoin(self.base_url, direct_src_url)
-
+        main_img = soup.find('img')
+        if main_img and main_img.get('src'):
+            return main_img.get('src')
         return None
 
-    def parse_article(self, article_url, category_url=None, category=None):
-        """Parse a full article page and return structured data."""
-        if article_url in self.visited_urls:
-            print(f"Already visited {article_url}. Skipping.")
-            return None
+    def scrape_and_save(self, site_url, max_articles=5):
+        """Scrape articles from a site and save them to the database."""
+        domain = urlparse(site_url).netloc
+        site = None
+        
+        if 'bbc.com' in domain:
+            site = 'bbc'
+        elif 'cnn.com' in domain:
+            site = 'cnn'
+        elif 'npr.org' in domain:
+            site = 'npr'
+        elif 'apnews.com' in domain:
+            site = 'apnews'
+        elif 'aljazeera.com' in domain:
+            site = 'aljazeera'
+        else:
+            print(f"Unsupported site: {site_url}")
+            return 0
 
-        self.visited_urls.add(article_url)
-        html = self.get_page(article_url)
+        html = self.get_page(site_url)
         if not html:
-            print(f"Failed to get page for {article_url}. Skipping parsing.")
-            return None
+            print(f"Failed to fetch HTML for {site_url}")
+            return 0
 
-        soup = BeautifulSoup(html, 'html.parser')
+        article_links = self._extract_links(html, site)
+        if not article_links:
+            print(f"No article links found for {site_url}")
+            return 0
 
-        title = self._extract_title(soup)
-        if not title:
-            print(f"No title found for {article_url}")
-            return None
-
-        published_at = self._extract_timestamp(soup)
-        author = self._extract_author(soup)
-        extracted_category = self._extract_category_from_url(article_url)
-        final_category = category or extracted_category
-        
-        # Get the approved tag from the category URL
-        approved_tag = self._get_tag_from_url(category_url) if category_url else None
-        tags = [approved_tag] if approved_tag else []
-        print(f"[DEBUG] Using approved tag: {tags} (from category URL: {category_url})")
-
-        content = self._extract_content(soup)
-        image_url = self._extract_images(soup)
-
-        summary = self._generate_summary(content) if content else None
-
-        word_count = len(content.split()) if content else 0
-        words_per_minute = 200
-        time_to_read = f"{max(1, round(word_count / words_per_minute))} min read" if word_count > 0 else "N/A"
-
-        article_data = {
-            'url': article_url,
-            'title': title,
-            'summary': summary,
-            'content': content,
-            'category': final_category,
-            'source': 'BBC News',
-            'image_url': image_url,
-            'time_to_read': time_to_read,
-            'published_at': published_at,
-            'scraped_at': datetime.utcnow(),
-            'author': author,
-            'tags': tags
-        }
-        print(f"Successfully parsed article: {title} from {article_url}")
-        return article_data
-
-    def scrape_category_and_save(self, category_url, max_articles=10):
-        """Scrape articles from a category and save them to the database."""
-        scraped_links = self.extract_category_links(category_url, max_pages=1)
-        
         saved_count = 0
-        for link in scraped_links[:max_articles]:
+        for link in article_links[:max_articles]:
+            if link in self.visited_urls:
+                continue
+                
             print(f"Attempting to parse and save: {link}")
-            article_data = self.parse_article(
-                link, 
-                category_url=category_url,  # Pass the category URL here
-                category=self._extract_category_from_url(link)
-            )
+            article_html = self.get_page(link)
+            if not article_html:
+                continue
+
+            article_data = self._extract_article_data(link, article_html)
             
-            if not article_data or not article_data['title']:
-                print(f"Skipping article due to missing data or title after parsing: {link}")
+            # Skip if no content or no title
+            if not article_data or not article_data.get('title') or not article_data.get('content'):
+                print(f"Skipping article - missing title or content: {link}")
+                continue
+
+            # Skip if content is too short (less than 100 words)
+            word_count = len(article_data.get('content', '').split())
+            if word_count < 100:
+                print(f"Skipping article - content too short ({word_count} words): {link}")
                 continue
 
             existing_article = Article.query.filter_by(
@@ -565,9 +538,6 @@ class BBCNewsScraper:
             ).first()
 
             if not existing_article:
-                # Convert tags list to comma-separated string for database storage
-                tags_str = ','.join(article_data['tags']) if article_data['tags'] else None
-
                 new_article = Article(
                     title=article_data['title'],
                     summary=article_data['summary'],
@@ -577,52 +547,54 @@ class BBCNewsScraper:
                     image_url=article_data['image_url'],
                     time_to_read=article_data['time_to_read'],
                     published_at=article_data['published_at'],
-                    scraped_at=article_data['scraped_at'],
-                    author=article_data['author'],
-                    tags=tags_str
+                    scraped_at=datetime.utcnow(),
+                    author=article_data.get('author'),
+                    tags=','.join(article_data['tags']) if article_data['tags'] else None
                 )
                 db.session.add(new_article)
                 saved_count += 1
-                print(f"Added new article to DB: {new_article.title} with tags: {tags_str}")
+                print(f"Added new article to DB: {new_article.title}")
             else:
                 print(f"Article '{article_data['title']}' already exists in DB. Skipping.")
-        
+
+            self.visited_urls.add(link)
+
         db.session.commit()
         return saved_count
 
 # --- Scheduled Scraping Function ---
 def scheduled_scrape_news():
     """
-    Function to be run by the scheduler to scrape news from various categories.
+    Function to be run by the scheduler to scrape news from various sources.
     This function must be run within an application context to access the database.
     """
     with app.app_context():
         print(f"[{datetime.now()}] Starting scheduled news scraping...")
-        scraper = BBCNewsScraper()
+        scraper = MultiNewsScraper()
         
-        categories_to_scrape = {
-            'Technology': 'https://www.bbc.com/news/technology',
-            'Politics': 'https://www.bbc.com/news/politics',
-            'Science': 'https://www.bbc.com/innovation',
-            'Business': 'https://www.bbc.com/news/business',
-            'Entertainment': 'https://www.bbc.com/news/entertainment_and_arts',
-            'Sport': 'https://www.bbc.com/sport/cricket',
+        sites_to_scrape = {
+            'BBC': 'https://www.bbc.com/news',
+            'CNN': 'https://www.cnn.com/world',
+            'NPR': 'https://www.npr.org/sections/news/',
+            'AP News': 'https://apnews.com/hub/world-news',
+            'Al Jazeera': 'https://www.aljazeera.com/news/'
         }
         
         total_new_articles_saved = 0
         
-        for category_name, url in categories_to_scrape.items():
+        for name, url in sites_to_scrape.items():
             try:
-                print(f"[{datetime.now()}] Scraping category: {category_name} from {url}")
-                saved_count = scraper.scrape_category_and_save(url, max_articles=5) 
+                print(f"[{datetime.now()}] Scraping site: {name} from {url}")
+                saved_count = scraper.scrape_and_save(url, max_articles=5)
                 total_new_articles_saved += saved_count
-                print(f"[{datetime.now()}] Finished scraping {category_name}. Saved {saved_count} new articles.")
+                print(f"[{datetime.now()}] Finished scraping {name}. Saved {saved_count} new articles.")
             except Exception as e:
-                print(f"[{datetime.now()}] Error scraping {category_name}: {e}")
+                print(f"[{datetime.now()}] Error scraping {name}: {e}")
                 import traceback
                 traceback.print_exc()
         
         print(f"[{datetime.now()}] Scheduled scraping finished. Total new articles saved: {total_new_articles_saved}")
+
 
 def initialize_database():
     """Initialize the database with default data if empty."""
