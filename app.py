@@ -1234,9 +1234,9 @@ def admin_scrape_news():
             flash('Category URL is required!', 'error')
             return render_template('admin/scrape_news.html')
 
-        scraper = BBCNewsScraper() 
+        scraper = MultiNewsScraper() 
         try:
-            saved_count = scraper.scrape_category_and_save(category_url, max_articles=max_articles)
+            saved_count = scraper.scrape_and_save(category_url, max_articles=max_articles)
             flash(f'Successfully scraped and saved {saved_count} new articles from {category_url}.', 'success')
         except Exception as e:
             flash(f'Error during scraping: {e}', 'error')
