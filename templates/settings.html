@@ -97,18 +97,31 @@
     let userPreferences = JSON.parse(localStorage.getItem('userPreferences')) || defaultPreferences;
     let tempSettings = {};
 
-    function initializeSettingsTab() {
-        tempSettings = JSON.parse(JSON.stringify(userPreferences));
-        document.querySelectorAll('.setting-category-btn').forEach(button => {
-            const category = button.dataset.category;
-            const isActive = tempSettings.categories.includes(category);
-            button.classList.toggle('bg-blue-600', isActive);
-            button.classList.toggle('text-white', isActive);
-            button.classList.toggle('bg-gray-200', !isActive);
-            button.classList.toggle('dark:bg-gray-700', !isActive);
-        });
-        document.getElementById('readingTimeSelect').value = tempSettings.readingTime;
+    async function initializeSettingsTab() {
+    try {
+        const response = await fetch('/api/get_preferences');
+        if (response.ok) {
+            const data = await response.json();
+            tempSettings = {
+                categories: data.categories || [],
+                readingTime: data.readingTime || '10-15 mins'
+            };
+            
+            // Update UI with fetched preferences
+            document.querySelectorAll('.setting-category-btn').forEach(button => {
+                const category = button.dataset.category;
+                const isActive = tempSettings.categories.includes(category);
+                button.classList.toggle('bg-blue-600', isActive);
+                button.classList.toggle('text-white', isActive);
+                button.classList.toggle('bg-gray-200', !isActive);
+                button.classList.toggle('dark:bg-gray-700', !isActive);
+            });
+            document.getElementById('readingTimeSelect').value = tempSettings.readingTime;
+        }
+    } catch (error) {
+        console.error('Error fetching preferences:', error);
     }
+}
 
     function toggleSettingCategory(button) {
       const category = button.dataset.category;
@@ -125,12 +138,31 @@
       button.classList.toggle('dark:bg-gray-700', !isActive);
     }
 
-    function saveSettings() {
-      tempSettings.readingTime = document.getElementById('readingTimeSelect').value;
-      userPreferences = JSON.parse(JSON.stringify(tempSettings));
-      localStorage.setItem('userPreferences', JSON.stringify(userPreferences));
-      console.log('Settings saved successfully!');
+    async function saveSettings() {
+    tempSettings.readingTime = document.getElementById('readingTimeSelect').value;
+    
+    try {
+        const response = await fetch('/api/save_preferences', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                categories: tempSettings.categories,
+                readingTime: tempSettings.readingTime
+            })
+        });
+        
+        if (response.ok) {
+            alert('Settings saved successfully!');
+        } else {
+            alert('Failed to save settings');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('An error occurred while saving settings');
     }
+}
 
     async function handlePasswordReset(event) {
       event.preventDefault();

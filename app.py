@@ -60,6 +60,8 @@ class User(UserMixin, db.Model):
     role = db.Column(db.String(10), default='user', nullable=False)
     saved_articles = db.relationship('SavedArticle', backref='user', lazy=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
+    preferred_categories = db.Column(db.String(255), nullable=True)  # Comma-separated list
+    reading_time_preference = db.Column(db.String(20), nullable=True)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -164,13 +166,28 @@ class HybridRecommender:
     def __init__(self, db):
         self.db = db
     
-    def get_recommendations(self, user_id, num_recommendations=5):
+    def get_recommendations(self, user_id, num_recommendations=None):
         """Get hybrid recommendations for a user"""
+        # Calculate 10% of total articles if num_recommendations isn't specified
+        if num_recommendations is None:
+            total_articles = Article.query.count()
+            num_recommendations = max(1, int(total_articles * 0.1))  # Ensure at least 1 recommendation
+
         # Get user's reading history
+        user = User.query.get(user_id)
         user_activities = ReadingActivity.query.filter_by(user_id=user_id).all()
         
+        # Get preferences
+        preferred_categories = []
+        if user.preferred_categories:
+            preferred_categories = user.preferred_categories.split(',')
+        
+        # If no history but has preferences, use those
+        if not user_activities and preferred_categories:
+            return self._get_articles_by_categories(preferred_categories, num_recommendations)
+        
         if not user_activities:
-            # If no history, return popular articles
+            # If no history, return popular articles (10% of total)
             return self._get_popular_articles(num_recommendations)
         
         # Behavioral recommendations (based on reading history)
@@ -189,7 +206,14 @@ class HybridRecommender:
         
         # Sort by relevance score (simple hybrid approach)
         return sorted(filtered_recs, key=lambda x: self._calculate_relevance_score(x, user_id), reverse=True)[:num_recommendations]
-    
+        
+    def _get_articles_by_categories(self, categories, limit):
+        return Article.query.filter(
+            Article.tags.in_(categories)
+        ).order_by(
+            Article.published_at.desc()
+        ).limit(limit).all()
+
     def _get_behavioral_recommendations(self, user_id, num_recommendations):
         """Get recommendations based on user's reading patterns"""
         # Get most read tags by this user
@@ -775,6 +799,24 @@ def home():
     """Renders the homepage (index.html). Accessible to all users."""
     return render_template('index.html')
 
+
+@app.route('/api/save_preferences', methods=['POST'])
+@login_required
+def save_preferences():
+    data = request.get_json()
+    current_user.preferred_categories = ','.join(data.get('categories', []))
+    current_user.reading_time_preference = data.get('readingTime')
+    db.session.commit()
+    return jsonify({'status': 'success'})
+
+@app.route('/api/get_preferences')
+@login_required
+def get_preferences():
+    return jsonify({
+        'categories': current_user.preferred_categories.split(',') if current_user.preferred_categories else [],
+        'readingTime': current_user.reading_time_preference
+    })
+
 @app.route('/article/<int:article_id>')
 def article_detail(article_id):
     """Renders a single article's detailed view with a 3-paragraph preview made from all lines."""
@@ -1027,7 +1069,7 @@ def get_articles():
 def get_recommendations():
     """Get personalized article recommendations for the current user"""
     recommender = HybridRecommender(db)
-    recommendations = recommender.get_recommendations(current_user.id, num_recommendations=5)
+    recommendations = recommender.get_recommendations(current_user.id)  # Let it calculate 10%
     return jsonify([article.to_dict() for article in recommendations])
 
     
