@@ -31,9 +31,17 @@ from nlp_summarizer import summarize_new_articles
 app = Flask(__name__)
 
 # --- Configuration ---
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://intelijnews_user:JP3seCptHWgXvxMEb1VEweBPOtG6AOB3@dpg-d2ecu7adbo4c738a2og0-a.oregon-postgres.render.com/intelijnews?sslmode=require'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your_super_secret_key_here')
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', '#AwUozknrYnjhRNvfGP')
+
+# Recommended for production (connection pooling)
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_size': 10,
+    'max_overflow': 20,
+    'pool_recycle': 3600,
+    'pool_pre_ping': True
+}
 
 # Email configuration
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
@@ -652,26 +660,30 @@ def scheduled_scrape_news():
 def initialize_database():
     """Initialize the database with default data if empty."""
     with app.app_context():
-        # Create all database tables
-        db.create_all()
-        
-        # Check if we have any articles
-        if Article.query.count() == 0:
-            print("No articles found in database. Running initial scrape...")
-            scheduled_scrape_news()
-            summarize_new_articles(app, db, Article)
-        
-        # Ensure admin exists
-        if not User.query.filter_by(username='admin').first():
-            admin_user = User(
-                username='admin',
-                email='admin@intellinews.com',
-                role='admin'
-            )
-            admin_user.set_password('adminpass')
-            db.session.add(admin_user)
-            db.session.commit()
-            print("Created default admin user")
+        try:
+            # Create all database tables
+            db.create_all()
+            
+            # Check if we have any articles
+            if Article.query.count() == 0:
+                print("No articles found in database. Running initial scrape...")
+                scheduled_scrape_news()
+                summarize_new_articles(app, db, Article)
+            
+            # Ensure admin exists
+            if not User.query.filter_by(username='admin').first():
+                admin_user = User(
+                    username='admin',
+                    email='admin@intellinews.com',
+                    role='admin'
+                )
+                admin_user.set_password('adminpass')
+                db.session.add(admin_user)
+                db.session.commit()
+                print("Created default admin user")
+        except Exception as e:
+            print(f"Database initialization failed: {str(e)}")
+            db.session.rollback()
 
 initialize_database()
 
