@@ -671,7 +671,8 @@ def initialize_database():
                 summarize_new_articles(app, db, Article)
             
             # Ensure admin exists
-            if not User.query.filter_by(username='admin').first():
+            admin_user = User.query.filter_by(username='admin').first()
+            if not admin_user:
                 admin_user = User(
                     username='admin',
                     email='admin@intellinews.com',
@@ -680,10 +681,15 @@ def initialize_database():
                 admin_user.set_password('adminpass')
                 db.session.add(admin_user)
                 db.session.commit()
-                print("Created default admin user")
+                print(f"Created default admin user with ID: {admin_user.id}")
+            else:
+                print(f"Admin user already exists with ID: {admin_user.id}")
+                
+            return True
         except Exception as e:
             print(f"Database initialization failed: {str(e)}")
             db.session.rollback()
+            return False
 
 initialize_database()
 
