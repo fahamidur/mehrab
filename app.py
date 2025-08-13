@@ -31,7 +31,7 @@ from nlp_summarizer import summarize_new_articles
 app = Flask(__name__)
 
 # --- Configuration ---
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://intelijnews_user:JP3seCptHWgXvxMEb1VEweBPOtG6AOB3@dpg-d2ecu7adbo4c738a2og0-a.oregon-postgres.render.com/intelijnews?sslmode=require'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'postgresql://intelijnews_user:JP3seCptHWgXvxMEb1VEweBPOtG6AOB3@dpg-d2ecu7adbo4c738a2og0-a.oregon-postgres.render.com/intelijnews?sslmode=require')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', '#AwUozknrYnjhRNvfGP')
 
