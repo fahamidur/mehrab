@@ -22,12 +22,25 @@
     <div class="p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
         <form method="POST" action="{{ url_for('admin_scrape_news') }}" class="space-y-4">
             <div>
-                <label for="category_url" class="block text-sm font-medium text-gray-700 dark:text-gray-300">BBC News Category URL</label>
-                <input type="url" id="category_url" name="category_url" required
-                       placeholder="e.g., https://www.bbc.com/news/technology"
-                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"/>
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Enter a BBC News category URL to scrape articles from.</p>
+                <label for="category_url" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    News Source
+                </label>
+                <select id="category_url" name="category_url" required
+                        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm 
+                              focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm 
+                              dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                    <option value="">-- Select a News Source --</option>
+                    <option value="https://www.bbc.com/news">BBC</option>
+                    <option value="https://www.cnn.com/world">CNN</option>
+                    <option value="https://www.npr.org/sections/news/">NPR</option>
+                    <option value="https://apnews.com/hub/world-news">AP News</option>
+                    <option value="https://www.aljazeera.com/news/">Al Jazeera</option>
+                </select>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Select a news source to scrape articles from.
+                </p>
             </div>
+
             <div>
                 <label for="max_articles" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Max Articles to Scrape (per category)</label>
                 <input type="number" id="max_articles" name="max_articles" value="10" min="1" max="50"

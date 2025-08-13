@@ -130,6 +130,35 @@ class VerificationCode(db.Model):
         self.code = code
         self.expires_at = datetime.utcnow() + timedelta(minutes=10)
 
+class RecommendationEvaluation(db.Model):
+    """Tracks recommendation impressions and clicks"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    article_id = db.Column(db.Integer, db.ForeignKey('article.id'))
+    shown_at = db.Column(db.DateTime, default=datetime.utcnow)
+    clicked = db.Column(db.Boolean, default=False)
+    clicked_at = db.Column(db.DateTime)
+    saved = db.Column(db.Boolean, default=False)
+    recommendation_strategy = db.Column(db.String(50))  # 'hybrid', 'popular', 'random'
+    
+    user = db.relationship('User', backref='recommendation_evals')
+    article = db.relationship('Article', backref='recommendation_evals')
+
+class EvaluationBaseline(db.Model):
+    """Stores daily metrics for comparison"""
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.Date, unique=True)
+    hybrid_impressions = db.Column(db.Integer)
+    hybrid_clicks = db.Column(db.Integer)
+    popular_impressions = db.Column(db.Integer)
+    popular_clicks = db.Column(db.Integer)
+    random_impressions = db.Column(db.Integer)
+    random_clicks = db.Column(db.Integer)
+    hybrid_saves = db.Column(db.Integer)
+    popular_saves = db.Column(db.Integer)
+    random_saves = db.Column(db.Integer)
+
+
 # --- Flask-Login User Loader ---
 @login_manager.user_loader
 def load_user(user_id):
@@ -665,6 +694,19 @@ def register_scheduler():
         minutes=10
     )
 
+    scheduler.add_job(
+            id='calculate_daily_metrics',
+            func=run_daily_metrics_with_context,
+            trigger='interval',
+            hours=2,
+            start_date=datetime.now() + timedelta(minutes=1),
+            replace_existing=True
+        )
+
+def run_daily_metrics_with_context():
+    with app.app_context():
+        calculate_daily_metrics()
+
 def run_scrape_with_context():
     with app.app_context():
         print(f"\n [Scrape Job Started at {datetime.now()}]")
@@ -793,6 +835,62 @@ def reset_password():
 
     return redirect(url_for('forgot_password'))
 
+
+def calculate_daily_metrics():
+    """Calculates and stores daily metrics"""
+    today = datetime.utcnow().date()
+    
+    # Check if already calculated today
+    if EvaluationBaseline.query.filter_by(date=today).first():
+        return
+    
+    # Hybrid metrics
+    hybrid = db.session.query(
+        db.func.count(RecommendationEvaluation.id),
+        db.func.sum(db.case((RecommendationEvaluation.clicked == True, 1), else_=0)),
+        db.func.sum(db.case((RecommendationEvaluation.saved == True, 1), else_=0))
+    ).filter(
+        db.func.date(RecommendationEvaluation.shown_at) == today,
+        RecommendationEvaluation.recommendation_strategy == 'hybrid'
+    ).first()
+    
+    # Popular metrics
+    popular = db.session.query(
+        db.func.count(RecommendationEvaluation.id),
+        db.func.sum(db.case((RecommendationEvaluation.clicked == True, 1), else_=0)),
+        db.func.sum(db.case((RecommendationEvaluation.saved == True, 1), else_=0))
+    ).filter(
+        db.func.date(RecommendationEvaluation.shown_at) == today,
+        RecommendationEvaluation.recommendation_strategy == 'popular'
+    ).first()
+    
+    # Random metrics
+    random = db.session.query(
+        db.func.count(RecommendationEvaluation.id),
+        db.func.sum(db.case((RecommendationEvaluation.clicked == True, 1), else_=0)),
+        db.func.sum(db.case((RecommendationEvaluation.saved == True, 1), else_=0))
+    ).filter(
+        db.func.date(RecommendationEvaluation.shown_at) == today,
+        RecommendationEvaluation.recommendation_strategy == 'random'
+    ).first()
+    
+    # Save to baseline table
+    baseline = EvaluationBaseline(
+        date=today,
+        hybrid_impressions=hybrid[0] or 0,
+        hybrid_clicks=hybrid[1] or 0,
+        hybrid_saves=hybrid[2] or 0,
+        popular_impressions=popular[0] or 0,
+        popular_clicks=popular[1] or 0,
+        popular_saves=popular[2] or 0,
+        random_impressions=random[0] or 0,
+        random_clicks=random[1] or 0,
+        random_saves=random[2] or 0
+    )
+    db.session.add(baseline)
+    db.session.commit()
+
+        
 # --- Routes ---
 @app.route('/')
 def home():
@@ -969,6 +1067,93 @@ def register():
 
     return render_template('register.html')
 
+# --- Routes Evaluate ----- #
+
+@app.route('/admin/recommender_dashboard')
+@admin_required
+def recommender_dashboard():
+    # Get last 7 days of data
+    baselines = EvaluationBaseline.query.order_by(EvaluationBaseline.date.desc()).limit(7).all()
+    
+    # Prepare chart data
+    dates = [b.date.strftime('%Y-%m-%d') for b in baselines][::-1]
+    hybrid_ctr = [(b.hybrid_clicks / b.hybrid_impressions * 100) if b.hybrid_impressions > 0 else 0 for b in baselines][::-1]
+    popular_ctr = [(b.popular_clicks / b.popular_impressions * 100) if b.popular_impressions > 0 else 0 for b in baselines][::-1]
+    random_ctr = [(b.random_clicks / b.random_impressions * 100) if b.random_impressions > 0 else 0 for b in baselines][::-1]
+    
+    # Today's metrics
+    today = datetime.utcnow().date()
+    today_data = EvaluationBaseline.query.filter_by(date=today).first()
+    
+    return render_template('admin/recommender_dashboard.html',
+                         dates=dates,
+                         hybrid_ctr=hybrid_ctr,
+                         popular_ctr=popular_ctr,
+                         random_ctr=random_ctr,
+                         today=today_data)
+
+@app.route('/api/track_impression/<int:article_id>', methods=['POST'])
+@login_required
+def track_impression(article_id,strategy):
+    try:
+        data = request.get_json() or {}
+        if not strategy:
+            strategy = data.get('strategy', 'hybrid')
+        
+        track = RecommendationEvaluation(
+            user_id=current_user.id,
+            article_id=article_id,
+            recommendation_strategy=strategy
+        )
+        db.session.add(track)
+        db.session.commit()
+        return jsonify({'status': 'success'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/track_click/<int:article_id>', methods=['POST'])
+@login_required
+def track_click(article_id):
+    """Log when a user clicks a recommendation"""
+    data = request.get_json()
+    strategy = data.get('strategy', 'hybrid')
+    
+    # Update the most recent impression
+    track = RecommendationEvaluation.query.filter_by(
+        user_id=current_user.id,
+        article_id=article_id,
+        recommendation_strategy=strategy
+    ).order_by(RecommendationEvaluation.shown_at.desc()).first()
+    
+    if track:
+        track.clicked = True
+        track.clicked_at = datetime.utcnow()
+        db.session.commit()
+    return jsonify({'status': 'success'})
+
+@app.route('/api/track_save/<int:article_id>', methods=['POST'])
+@login_required
+def track_save(article_id):
+    """Log when a user saves a recommended article"""
+    data = request.get_json()
+    strategy = data.get('strategy', 'hybrid')
+    
+    track = RecommendationEvaluation.query.filter_by(
+        user_id=current_user.id,
+        article_id=article_id,
+        recommendation_strategy=strategy
+    ).order_by(RecommendationEvaluation.shown_at.desc()).first()
+    
+    if track:
+        track.saved = True
+        db.session.commit()
+    return jsonify({'status': 'success'})
+
+# ---------------------------#
+
+
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """Handles user login."""
@@ -1060,18 +1245,132 @@ def settings():
 # --- API Endpoints for Frontend (e.g., index.html to fetch articles) ---
 @app.route('/api/articles')
 def get_articles():
-    """API endpoint to fetch articles for the homepage."""
+    """API endpoint to fetch articles for the homepage with new recommendation split."""
     articles = Article.query.order_by(Article.published_at.desc()).all()
-    return jsonify([article.to_dict() for article in articles])
+
+    # Guest users see all news in general feed
+    if not current_user.is_authenticated:
+        return jsonify({'general': [article.to_dict() for article in articles]})
+
+    total_count = len(articles)
+    rec_count = max(1, int(total_count * 0.10))
+
+    # 70% hybrid
+    hybrid_count = int(rec_count * 0.70)
+    recommender = HybridRecommender(db)
+    hybrid_articles = recommender.get_recommendations(current_user.id, hybrid_count)
+
+    # 15% popular
+    popular_count = max(1, int(rec_count * 0.15))
+    popular_articles = Article.query.order_by(Article.published_at.desc()).limit(popular_count).all()
+
+    # 15% random
+    random_count = rec_count - hybrid_count - popular_count
+    random_articles = Article.query.order_by(db.func.random()).limit(random_count).all()
+
+    # Combine and deduplicate recommendations
+    rec_articles = list({a.id: a for a in (hybrid_articles + popular_articles + random_articles)}.values())
+
+    # General feed = all articles except recommendations
+    rec_ids = {a.id for a in rec_articles}
+    general_articles = [a for a in articles if a.id not in rec_ids]
+
+    # Track impressions for each strategy
+    for a in hybrid_articles:
+        db.session.add(RecommendationEvaluation(
+            user_id=current_user.id, article_id=a.id, recommendation_strategy='hybrid'))
+    for a in popular_articles:
+        db.session.add(RecommendationEvaluation(
+            user_id=current_user.id, article_id=a.id, recommendation_strategy='popular'))
+    for a in random_articles:
+        db.session.add(RecommendationEvaluation(
+            user_id=current_user.id, article_id=a.id, recommendation_strategy='random'))
+    db.session.commit()
+
+    return jsonify({
+        'recommendations': [a.to_dict() for a in rec_articles],
+        'general': [a.to_dict() for a in general_articles]
+    })
+
 
 @app.route('/api/recommendations')
 @login_required
 def get_recommendations():
-    """Get personalized article recommendations for the current user"""
-    recommender = HybridRecommender(db)
-    recommendations = recommender.get_recommendations(current_user.id)  # Let it calculate 10%
-    return jsonify([article.to_dict() for article in recommendations])
+    """Modified to include strategy tracking"""
+    # Determine strategy (simple A/B test)
+    strategies = ['hybrid', 'popular', 'random']
+    strategy = random.choices(strategies, weights=[70, 15, 15], k=1)[0]
+    
+    # Get recommendations based on strategy
+    if strategy == 'hybrid':
+        recommender = HybridRecommender(db)
+        articles = recommender.get_recommendations(current_user.id)
+    elif strategy == 'popular':
+        articles = Article.query.order_by(Article.published_at.desc()).limit(10).all()
+    else:  # random
+        articles = Article.query.order_by(db.func.random()).limit(10).all()
+    
+    # Log impressions
+    for article in articles:
+        track_impression(article.id, strategy)
+    
+    return jsonify({
+        'articles': [article.to_dict() for article in articles],
+        'strategy': strategy
+    }), 200  # Explicitly return 200 status
 
+@app.route('/api/recommender_metrics')
+@admin_required
+def recommender_metrics():
+    """API endpoint to fetch metrics for the dashboard"""
+    # Get last 7 days of data
+    baselines = EvaluationBaseline.query.order_by(EvaluationBaseline.date.desc()).limit(7).all()
+    baselines = sorted(baselines, key=lambda x: x.date)  # Sort chronologically
+    
+    # Prepare trend data
+    dates = [b.date.strftime('%Y-%m-%d') for b in baselines]
+    
+    hybrid_ctr = []
+    popular_ctr = []
+    random_ctr = []
+    hybrid_save_rate = []
+    popular_save_rate = []
+    random_save_rate = []
+    
+    for b in baselines:
+        # CTR calculations
+        hybrid_ctr.append((b.hybrid_clicks / b.hybrid_impressions * 100) if b.hybrid_impressions > 0 else 0)
+        popular_ctr.append((b.popular_clicks / b.popular_impressions * 100) if b.popular_impressions > 0 else 0)
+        random_ctr.append((b.random_clicks / b.random_impressions * 100) if b.random_impressions > 0 else 0)
+        
+        # Save rate calculations
+        hybrid_save_rate.append((b.hybrid_saves / b.hybrid_impressions * 100) if b.hybrid_impressions > 0 else 0)
+        popular_save_rate.append((b.popular_saves / b.popular_impressions * 100) if b.popular_impressions > 0 else 0)
+        random_save_rate.append((b.random_saves / b.random_impressions * 100) if b.random_impressions > 0 else 0)
+    
+    # Today's data (most recent)
+    today = baselines[-1] if baselines else None
+    
+    return jsonify({
+        'today': {
+            'hybrid_impressions': today.hybrid_impressions if today else 0,
+            'hybrid_clicks': today.hybrid_clicks if today else 0,
+            'popular_impressions': today.popular_impressions if today else 0,
+            'popular_clicks': today.popular_clicks if today else 0,
+            'random_impressions': today.random_impressions if today else 0,
+            'random_clicks': today.random_clicks if today else 0,
+            'hybrid_saves': today.hybrid_saves if today else 0,
+            'popular_saves': today.popular_saves if today else 0,
+            'random_saves': today.random_saves if today else 0
+        },
+        'trend_dates': dates,
+        'hybrid_ctr': hybrid_ctr,
+        'popular_ctr': popular_ctr,
+        'random_ctr': random_ctr,
+        'hybrid_save_rate': hybrid_save_rate,
+        'popular_save_rate': popular_save_rate,
+        'random_save_rate': random_save_rate
+    })
     
 @app.route('/api/user_analytics')
 @login_required
@@ -1292,6 +1591,7 @@ if __name__ == '__main__':
     with app.app_context():
         db.create_all()
         initialize_database()
+        
     
     # Register and start scheduler
     register_scheduler()

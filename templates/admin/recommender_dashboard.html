@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+
+{% block title %}Recommender Analytics{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8 mb-16 md:mb-0">
+    <h2 class="text-3xl font-bold mb-8 text-gray-900 dark:text-white">Recommender Analytics</h2>
+
+    <div class="grid grid-cols-1 gap-6 mb-8">
+        <!-- Today's Summary Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+                <h3 class="text-xl font-semibold mb-2 text-gray-800 dark:text-white">Hybrid Recommender</h3>
+                <div class="flex justify-between items-center">
+                    <div>
+                        <p class="text-gray-600 dark:text-gray-400">Impressions: <span id="hybrid-impressions" class="font-bold text-gray-900 dark:text-white">0</span></p>
+                        <p class="text-gray-600 dark:text-gray-400">Clicks: <span id="hybrid-clicks" class="font-bold text-gray-900 dark:text-white">0</span></p>
+                        <p class="text-gray-600 dark:text-gray-400">CTR: <span id="hybrid-ctr" class="font-bold text-gray-900 dark:text-white">0%</span></p>
+                    </div>
+                    <div class="w-16 h-16 rounded-full flex items-center justify-center bg-blue-100 dark:bg-blue-900">
+                        <span id="hybrid-ctr-circle" class="text-xl font-bold text-blue-600 dark:text-blue-300">0%</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+                <h3 class="text-xl font-semibold mb-2 text-gray-800 dark:text-white">Popular Articles</h3>
+                <div class="flex justify-between items-center">
+                    <div>
+                        <p class="text-gray-600 dark:text-gray-400">Impressions: <span id="popular-impressions" class="font-bold text-gray-900 dark:text-white">0</span></p>
+                        <p class="text-gray-600 dark:text-gray-400">Clicks: <span id="popular-clicks" class="font-bold text-gray-900 dark:text-white">0</span></p>
+                        <p class="text-gray-600 dark:text-gray-400">CTR: <span id="popular-ctr" class="font-bold text-gray-900 dark:text-white">0%</span></p>
+                    </div>
+                    <div class="w-16 h-16 rounded-full flex items-center justify-center bg-green-100 dark:bg-green-900">
+                        <span id="popular-ctr-circle" class="text-xl font-bold text-green-600 dark:text-green-300">0%</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+                <h3 class="text-xl font-semibold mb-2 text-gray-800 dark:text-white">Random Articles</h3>
+                <div class="flex justify-between items-center">
+                    <div>
+                        <p class="text-gray-600 dark:text-gray-400">Impressions: <span id="random-impressions" class="font-bold text-gray-900 dark:text-white">0</span></p>
+                        <p class="text-gray-600 dark:text-gray-400">Clicks: <span id="random-clicks" class="font-bold text-gray-900 dark:text-white">0</span></p>
+                        <p class="text-gray-600 dark:text-gray-400">CTR: <span id="random-ctr" class="font-bold text-gray-900 dark:text-white">0%</span></p>
+                    </div>
+                    <div class="w-16 h-16 rounded-full flex items-center justify-center bg-purple-100 dark:bg-purple-900">
+                        <span id="random-ctr-circle" class="text-xl font-bold text-purple-600 dark:text-purple-300">0%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CTR Trend Chart -->
+    <div class="p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md mb-8">
+        <h3 class="text-xl font-semibold mb-4 text-gray-800 dark:text-white">CTR Trends (Last 7 Days)</h3>
+        <div class="h-80">
+            <canvas id="ctrTrendChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Save Rate Chart -->
+    <div class="p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+        <h3 class="text-xl font-semibold mb-4 text-gray-800 dark:text-white">Save Rates (Last 7 Days)</h3>
+        <div class="h-80">
+            <canvas id="saveRateChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="mt-8 space-y-2">
+          {% for category, message in messages %}
+            <div class="p-3 rounded-md text-sm {% if category == 'error' or category == 'danger' %}bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300{% elif category == 'success' %}bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300{% else %}bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300{% endif %}">
+              {{ message }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+</div>
+
+<!-- JavaScript -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Fetch data from API
+    fetch('/api/recommender_metrics')
+        .then(response => response.json())
+        .then(data => {
+            // Update summary cards
+            updateSummaryCards(data.today);
+            
+            // Initialize charts
+            initCTRTrendChart(data.trend_dates, data.hybrid_ctr, data.popular_ctr, data.random_ctr);
+            initSaveRateChart(data.trend_dates, data.hybrid_save_rate, data.popular_save_rate, data.random_save_rate);
+        })
+        .catch(error => console.error('Error fetching data:', error));
+
+    function updateSummaryCards(todayData) {
+        // Hybrid
+        document.getElementById('hybrid-impressions').textContent = todayData.hybrid_impressions;
+        document.getElementById('hybrid-clicks').textContent = todayData.hybrid_clicks;
+        const hybridCTR = todayData.hybrid_impressions > 0 ? 
+            (todayData.hybrid_clicks / todayData.hybrid_impressions * 100).toFixed(2) : 0;
+        document.getElementById('hybrid-ctr').textContent = hybridCTR + '%';
+        document.getElementById('hybrid-ctr-circle').textContent = hybridCTR + '%';
+        
+        // Popular
+        document.getElementById('popular-impressions').textContent = todayData.popular_impressions;
+        document.getElementById('popular-clicks').textContent = todayData.popular_clicks;
+        const popularCTR = todayData.popular_impressions > 0 ? 
+            (todayData.popular_clicks / todayData.popular_impressions * 100).toFixed(2) : 0;
+        document.getElementById('popular-ctr').textContent = popularCTR + '%';
+        document.getElementById('popular-ctr-circle').textContent = popularCTR + '%';
+        
+        // Random
+        document.getElementById('random-impressions').textContent = todayData.random_impressions;
+        document.getElementById('random-clicks').textContent = todayData.random_clicks;
+        const randomCTR = todayData.random_impressions > 0 ? 
+            (todayData.random_clicks / todayData.random_impressions * 100).toFixed(2) : 0;
+        document.getElementById('random-ctr').textContent = randomCTR + '%';
+        document.getElementById('random-ctr-circle').textContent = randomCTR + '%';
+    }
+
+    function initCTRTrendChart(dates, hybridData, popularData, randomData) {
+        const ctx = document.getElementById('ctrTrendChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: dates,
+                datasets: [
+                    {
+                        label: 'Hybrid CTR',
+                        data: hybridData,
+                        borderColor: 'rgb(59, 130, 246)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.3,
+                        fill: true
+                    },
+                    {
+                        label: 'Popular CTR',
+                        data: popularData,
+                        borderColor: 'rgb(16, 185, 129)',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        tension: 0.3,
+                        fill: true
+                    },
+                    {
+                        label: 'Random CTR',
+                        data: randomData,
+                        borderColor: 'rgb(168, 85, 247)',
+                        backgroundColor: 'rgba(168, 85, 247, 0.1)',
+                        tension: 0.3,
+                        fill: true
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            color: '#6B7280'
+                        }
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': ' + context.raw + '%';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            color: 'rgba(209, 213, 219, 0.3)'
+                        },
+                        ticks: {
+                            color: '#6B7280'
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        grid: {
+                            color: 'rgba(209, 213, 219, 0.3)'
+                        },
+                        ticks: {
+                            color: '#6B7280',
+                            callback: function(value) {
+                                return value + '%';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function initSaveRateChart(dates, hybridData, popularData, randomData) {
+        const ctx = document.getElementById('saveRateChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: dates,
+                datasets: [
+                    {
+                        label: 'Hybrid Save Rate',
+                        data: hybridData,
+                        backgroundColor: 'rgba(59, 130, 246, 0.7)',
+                        borderColor: 'rgb(59, 130, 246)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'Popular Save Rate',
+                        data: popularData,
+                        backgroundColor: 'rgba(16, 185, 129, 0.7)',
+                        borderColor: 'rgb(16, 185, 129)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'Random Save Rate',
+                        data: randomData,
+                        backgroundColor: 'rgba(168, 85, 247, 0.7)',
+                        borderColor: 'rgb(168, 85, 247)',
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            color: '#6B7280'
+                        }
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': ' + context.raw + '%';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: false,
+                        grid: {
+                            display: false,
+                            color: 'rgba(209, 213, 219, 0.3)'
+                        },
+                        ticks: {
+                            color: '#6B7280'
+                        }
+                    },
+                    y: {
+                        stacked: false,
+                        beginAtZero: true,
+                        grid: {
+                            color: 'rgba(209, 213, 219, 0.3)'
+                        },
+                        ticks: {
+                            color: '#6B7280',
+                            callback: function(value) {
+                                return value + '%';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+});
+</script>
+{% endblock %}
