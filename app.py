@@ -64,7 +64,7 @@ scheduler = APScheduler()
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(20), unique=True, nullable=False)
-    password_hash = db.Column(db.String(128), nullable=False)
+    password_hash = db.Column(db.String(300), nullable=False)
     role = db.Column(db.String(10), default='user', nullable=False)
     saved_articles = db.relationship('SavedArticle', backref='user', lazy=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
