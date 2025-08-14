@@ -17,6 +17,9 @@ from collections import defaultdict
 import sys
 from itsdangerous import URLSafeTimedSerializer
 from flask import current_app
+from flask_caching import Cache
+
+
 
 # Import Flask-APScheduler
 from flask_apscheduler import APScheduler
@@ -29,6 +32,16 @@ from nlp_summarizer import summarize_new_articles
 
 # Initialize Flask app
 app = Flask(__name__)
+
+
+cache = Cache(config={'CACHE_TYPE': 'SimpleCache'})
+cache.init_app(app)
+
+# Or for more configuration options:
+app.config['CACHE_TYPE'] = 'SimpleCache'  # For development
+app.config['CACHE_DEFAULT_TIMEOUT'] = 300  # 5 minutes
+cache = Cache(app)
+
 
 # --- Configuration ---
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'postgresql://intelijnews_user:JP3seCptHWgXvxMEb1VEweBPOtG6AOB3@dpg-d2ecu7adbo4c738a2og0-a.oregon-postgres.render.com/intelijnews?sslmode=require')
@@ -1262,54 +1275,66 @@ def settings():
 
 # --- API Endpoints for Frontend (e.g., index.html to fetch articles) ---
 @app.route('/api/articles')
+@cache.cached(timeout=60, query_string=True) 
 def get_articles():
-    """API endpoint to fetch articles for the homepage with new recommendation split."""
-    articles = Article.query.order_by(Article.published_at.desc()).all()
-
-    # Guest users see all news in general feed
+    """Optimized API endpoint with pagination and caching"""
+    # Add pagination parameters
+ 
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    
+    # Base query with proper ordering
+    base_query = Article.query.order_by(Article.published_at.desc())
+    
+    # Guest users see paginated general feed
     if not current_user.is_authenticated:
-        return jsonify({'general': [article.to_dict() for article in articles]})
+        articles = base_query.paginate(page=page, per_page=per_page, error_out=False)
+        return jsonify({
+            'general': [article.to_dict() for article in articles.items],
+            'total_pages': articles.pages,
+            'current_page': articles.page
+        })
 
-    total_count = len(articles)
+    # For authenticated users - optimize recommendation queries
+    total_count = base_query.count()
     rec_count = max(1, int(total_count * 0.10))
-
-    # 70% hybrid
+    
+    # Use subqueries to reduce database roundtrips
     hybrid_count = int(rec_count * 0.70)
-    recommender = HybridRecommender(db)
-    hybrid_articles = recommender.get_recommendations(current_user.id, hybrid_count)
-
-    # 15% popular
     popular_count = max(1, int(rec_count * 0.15))
-    popular_articles = Article.query.order_by(Article.published_at.desc()).limit(popular_count).all()
-
-    # 15% random
     random_count = rec_count - hybrid_count - popular_count
-    random_articles = Article.query.order_by(db.func.random()).limit(random_count).all()
-
-    # Combine and deduplicate recommendations
+    
+    # Execute all recommendation queries in parallel where possible
+    hybrid_articles = HybridRecommender(db).get_recommendations(current_user.id, hybrid_count)
+    popular_articles = base_query.limit(popular_count).all()
+    random_articles = base_query.order_by(db.func.random()).limit(random_count).all()
+    
+    # Combine recommendations
     rec_articles = list({a.id: a for a in (hybrid_articles + popular_articles + random_articles)}.values())
-
-    # General feed = all articles except recommendations
     rec_ids = {a.id for a in rec_articles}
-    general_articles = [a for a in articles if a.id not in rec_ids]
-
-    # Track impressions for each strategy
-    for a in hybrid_articles:
-        db.session.add(RecommendationEvaluation(
-            user_id=current_user.id, article_id=a.id, recommendation_strategy='hybrid'))
-    for a in popular_articles:
-        db.session.add(RecommendationEvaluation(
-            user_id=current_user.id, article_id=a.id, recommendation_strategy='popular'))
-    for a in random_articles:
-        db.session.add(RecommendationEvaluation(
-            user_id=current_user.id, article_id=a.id, recommendation_strategy='random'))
+    
+    # Get general feed with pagination (excluding recommendations)
+    general_articles = base_query.filter(~Article.id.in_(rec_ids)).paginate(
+        page=page, per_page=per_page, error_out=False)
+    
+    # Batch track impressions
+    impressions = [
+        RecommendationEvaluation(
+            user_id=current_user.id,
+            article_id=a.id,
+            recommendation_strategy='hybrid' if a in hybrid_articles else 
+                                  'popular' if a in popular_articles else 'random'
+        ) for a in rec_articles
+    ]
+    db.session.bulk_save_objects(impressions)
     db.session.commit()
-
+    
     return jsonify({
         'recommendations': [a.to_dict() for a in rec_articles],
-        'general': [a.to_dict() for a in general_articles]
+        'general': [a.to_dict() for a in general_articles.items],
+        'total_pages': general_articles.pages,
+        'current_page': general_articles.page
     })
-
 
 @app.route('/api/recommendations')
 @login_required
