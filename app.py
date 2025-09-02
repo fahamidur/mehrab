@@ -17,9 +17,6 @@ from collections import defaultdict
 import sys
 from itsdangerous import URLSafeTimedSerializer
 from flask import current_app
-from flask_caching import Cache
-
-
 
 # Import Flask-APScheduler
 from flask_apscheduler import APScheduler
@@ -33,28 +30,10 @@ from nlp_summarizer import summarize_new_articles
 # Initialize Flask app
 app = Flask(__name__)
 
-
-cache = Cache(config={'CACHE_TYPE': 'SimpleCache'})
-cache.init_app(app)
-
-# Or for more configuration options:
-app.config['CACHE_TYPE'] = 'SimpleCache'  # For development
-app.config['CACHE_DEFAULT_TIMEOUT'] = 300  # 5 minutes
-cache = Cache(app)
-
-
 # --- Configuration ---
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'postgresql://intelijnews_user:JP3seCptHWgXvxMEb1VEweBPOtG6AOB3@dpg-d2ecu7adbo4c738a2og0-a.oregon-postgres.render.com/intelijnews?sslmode=require')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', '#AwUozknrYnjhRNvfGP')
-
-# Recommended for production (connection pooling)
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'pool_size': 10,
-    'max_overflow': 20,
-    'pool_recycle': 3600,
-    'pool_pre_ping': True
-}
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your_super_secret_key_here')
 
 # Email configuration
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
@@ -77,7 +56,7 @@ scheduler = APScheduler()
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(20), unique=True, nullable=False)
-    password_hash = db.Column(db.String(300), nullable=False)
+    password_hash = db.Column(db.String(128), nullable=False)
     role = db.Column(db.String(10), default='user', nullable=False)
     saved_articles = db.relationship('SavedArticle', backref='user', lazy=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
@@ -673,36 +652,26 @@ def scheduled_scrape_news():
 def initialize_database():
     """Initialize the database with default data if empty."""
     with app.app_context():
-        try:
-            # Create all database tables
-            db.create_all()
-            
-            # Check if we have any articles
-            if Article.query.count() == 0:
-                print("No articles found in database. Running initial scrape...")
-                scheduled_scrape_news()
-                summarize_new_articles(app, db, Article)
-            
-            # Ensure admin exists
-            admin_user = User.query.filter_by(username='admin').first()
-            if not admin_user:
-                admin_user = User(
-                    username='admin',
-                    email='admin@intellinews.com',
-                    role='admin'
-                )
-                admin_user.set_password('adminpass')
-                db.session.add(admin_user)
-                db.session.commit()
-                print(f"Created default admin user with ID: {admin_user.id}")
-            else:
-                print(f"Admin user already exists with ID: {admin_user.id}")
-                
-            return True
-        except Exception as e:
-            print(f"Database initialization failed: {str(e)}")
-            db.session.rollback()
-            return False
+        # Create all database tables
+        db.create_all()
+        
+        # Check if we have any articles
+        if Article.query.count() == 0:
+            print("No articles found in database. Running initial scrape...")
+            scheduled_scrape_news()
+            summarize_new_articles(app, db, Article)
+        
+        # Ensure admin exists
+        if not User.query.filter_by(username='admin').first():
+            admin_user = User(
+                username='admin',
+                email='admin@intellinews.com',
+                role='admin'
+            )
+            admin_user.set_password('adminpass')
+            db.session.add(admin_user)
+            db.session.commit()
+            print("Created default admin user")
 
 initialize_database()
 
@@ -928,6 +897,75 @@ def home():
     """Renders the homepage (index.html). Accessible to all users."""
     return render_template('index.html')
 
+
+@app.route('/admin/stats')
+@admin_required
+def admin_stats():
+    """Admin panel to view system statistics."""
+    # User statistics
+    user_count = User.query.count()
+    admin_count = User.query.filter_by(role='admin').count()
+    regular_user_count = user_count - admin_count
+    
+    # Article statistics
+    article_count = Article.query.count()
+    
+    # Articles from today
+    today = datetime.utcnow().date()
+    today_article_count = Article.query.filter(
+        db.func.date(Article.scraped_at) == today
+    ).count()
+    
+    # Articles from this week
+    week_start = today - timedelta(days=today.weekday())
+    week_article_count = Article.query.filter(
+        Article.scraped_at >= week_start
+    ).count()
+    
+    # Articles added in the last 7 days
+    last_7_days = []
+    for i in range(6, -1, -1):
+        day = today - timedelta(days=i)
+        count = Article.query.filter(
+            db.func.date(Article.scraped_at) == day
+        ).count()
+        last_7_days.append((day.strftime('%Y-%m-%d'), count))
+    
+    # Category distribution
+    categories = Article.query.with_entities(
+        Article.tags, 
+        db.func.count(Article.id)
+    ).group_by(Article.tags).all()
+    
+    category_distribution = {}
+    for category, count in categories:
+        if category:
+            # Extract the first tag as the category
+            main_category = category.split(',')[0] if category else 'General'
+            category_distribution[main_category] = category_distribution.get(main_category, 0) + count
+        else:
+            category_distribution['General'] = category_distribution.get('General', 0) + count
+    
+    # Source distribution
+    sources = Article.query.with_entities(
+        Article.source, 
+        db.func.count(Article.id)
+    ).group_by(Article.source).all()
+    
+    source_distribution = {source: count for source, count in sources if source}
+    
+    return render_template(
+        'admin/stats.html',
+        user_count=user_count,
+        admin_count=admin_count,
+        regular_user_count=regular_user_count,
+        article_count=article_count,
+        today_article_count=today_article_count,
+        week_article_count=week_article_count,
+        last_7_days=last_7_days,
+        category_distribution=category_distribution,
+        source_distribution=source_distribution
+    )
 
 @app.route('/api/save_preferences', methods=['POST'])
 @login_required
@@ -1275,66 +1313,54 @@ def settings():
 
 # --- API Endpoints for Frontend (e.g., index.html to fetch articles) ---
 @app.route('/api/articles')
-@cache.cached(timeout=60, query_string=True) 
 def get_articles():
-    """Optimized API endpoint with pagination and caching"""
-    # Add pagination parameters
- 
-    page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 20, type=int)
-    
-    # Base query with proper ordering
-    base_query = Article.query.order_by(Article.published_at.desc())
-    
-    # Guest users see paginated general feed
-    if not current_user.is_authenticated:
-        articles = base_query.paginate(page=page, per_page=per_page, error_out=False)
-        return jsonify({
-            'general': [article.to_dict() for article in articles.items],
-            'total_pages': articles.pages,
-            'current_page': articles.page
-        })
+    """API endpoint to fetch articles for the homepage with new recommendation split."""
+    articles = Article.query.order_by(Article.published_at.desc()).all()
 
-    # For authenticated users - optimize recommendation queries
-    total_count = base_query.count()
+    # Guest users see all news in general feed
+    if not current_user.is_authenticated:
+        return jsonify({'general': [article.to_dict() for article in articles]})
+
+    total_count = len(articles)
     rec_count = max(1, int(total_count * 0.10))
-    
-    # Use subqueries to reduce database roundtrips
+
+    # 70% hybrid
     hybrid_count = int(rec_count * 0.70)
+    recommender = HybridRecommender(db)
+    hybrid_articles = recommender.get_recommendations(current_user.id, hybrid_count)
+
+    # 15% popular
     popular_count = max(1, int(rec_count * 0.15))
+    popular_articles = Article.query.order_by(Article.published_at.desc()).limit(popular_count).all()
+
+    # 15% random
     random_count = rec_count - hybrid_count - popular_count
-    
-    # Execute all recommendation queries in parallel where possible
-    hybrid_articles = HybridRecommender(db).get_recommendations(current_user.id, hybrid_count)
-    popular_articles = base_query.limit(popular_count).all()
-    random_articles = base_query.order_by(db.func.random()).limit(random_count).all()
-    
-    # Combine recommendations
+    random_articles = Article.query.order_by(db.func.random()).limit(random_count).all()
+
+    # Combine and deduplicate recommendations
     rec_articles = list({a.id: a for a in (hybrid_articles + popular_articles + random_articles)}.values())
+
+    # General feed = all articles except recommendations
     rec_ids = {a.id for a in rec_articles}
-    
-    # Get general feed with pagination (excluding recommendations)
-    general_articles = base_query.filter(~Article.id.in_(rec_ids)).paginate(
-        page=page, per_page=per_page, error_out=False)
-    
-    # Batch track impressions
-    impressions = [
-        RecommendationEvaluation(
-            user_id=current_user.id,
-            article_id=a.id,
-            recommendation_strategy='hybrid' if a in hybrid_articles else 
-                                  'popular' if a in popular_articles else 'random'
-        ) for a in rec_articles
-    ]
-    db.session.bulk_save_objects(impressions)
+    general_articles = [a for a in articles if a.id not in rec_ids]
+
+    # Track impressions for each strategy
+    for a in hybrid_articles:
+        db.session.add(RecommendationEvaluation(
+            user_id=current_user.id, article_id=a.id, recommendation_strategy='hybrid'))
+    for a in popular_articles:
+        db.session.add(RecommendationEvaluation(
+            user_id=current_user.id, article_id=a.id, recommendation_strategy='popular'))
+    for a in random_articles:
+        db.session.add(RecommendationEvaluation(
+            user_id=current_user.id, article_id=a.id, recommendation_strategy='random'))
     db.session.commit()
-    
+
     return jsonify({
         'recommendations': [a.to_dict() for a in rec_articles],
-        'general': [a.to_dict() for a in general_articles.items],
-        'total_pages': general_articles.pages,
-        'current_page': general_articles.page
+        'general': [a.to_dict() for a in general_articles]
     })
+
 
 @app.route('/api/recommendations')
 @login_required
