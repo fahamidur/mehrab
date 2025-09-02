@@ -929,6 +929,75 @@ def home():
     return render_template('index.html')
 
 
+@app.route('/admin/stats')
+@admin_required
+def admin_stats():
+    """Admin panel to view system statistics."""
+    # User statistics
+    user_count = User.query.count()
+    admin_count = User.query.filter_by(role='admin').count()
+    regular_user_count = user_count - admin_count
+    
+    # Article statistics
+    article_count = Article.query.count()
+    
+    # Articles from today
+    today = datetime.utcnow().date()
+    today_article_count = Article.query.filter(
+        db.func.date(Article.scraped_at) == today
+    ).count()
+    
+    # Articles from this week
+    week_start = today - timedelta(days=today.weekday())
+    week_article_count = Article.query.filter(
+        Article.scraped_at >= week_start
+    ).count()
+    
+    # Articles added in the last 7 days
+    last_7_days = []
+    for i in range(6, -1, -1):
+        day = today - timedelta(days=i)
+        count = Article.query.filter(
+            db.func.date(Article.scraped_at) == day
+        ).count()
+        last_7_days.append((day.strftime('%Y-%m-%d'), count))
+    
+    # Category distribution
+    categories = Article.query.with_entities(
+        Article.tags, 
+        db.func.count(Article.id)
+    ).group_by(Article.tags).all()
+    
+    category_distribution = {}
+    for category, count in categories:
+        if category:
+            # Extract the first tag as the category
+            main_category = category.split(',')[0] if category else 'General'
+            category_distribution[main_category] = category_distribution.get(main_category, 0) + count
+        else:
+            category_distribution['General'] = category_distribution.get('General', 0) + count
+    
+    # Source distribution
+    sources = Article.query.with_entities(
+        Article.source, 
+        db.func.count(Article.id)
+    ).group_by(Article.source).all()
+    
+    source_distribution = {source: count for source, count in sources if source}
+    
+    return render_template(
+        'admin/stats.html',
+        user_count=user_count,
+        admin_count=admin_count,
+        regular_user_count=regular_user_count,
+        article_count=article_count,
+        today_article_count=today_article_count,
+        week_article_count=week_article_count,
+        last_7_days=last_7_days,
+        category_distribution=category_distribution,
+        source_distribution=source_distribution
+    )
+
 @app.route('/api/save_preferences', methods=['POST'])
 @login_required
 def save_preferences():
